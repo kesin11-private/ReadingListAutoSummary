@@ -1,5 +1,6 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import "../styles/tailwind.css";
 import {
   DEFAULT_SETTINGS,
   getSettings,
