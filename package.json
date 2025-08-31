@@ -1,0 +1,11 @@
+{
+  "name": "reading-list-auto-summary",
+  "private": true,
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "kesin1202000@gmail.com",
+  "license": "Apache-2.0"
+}
