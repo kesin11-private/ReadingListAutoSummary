@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { resolve } from "node:path";
+import preact from "@preact/preset-vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type PluginOption } from "vite";
 
 // マニフェストファイルとHTMLファイルをコピーする関数
 function copyFiles() {
@@ -43,6 +44,8 @@ function copyDir(src: string, dest: string): void {
 // メインのビルド設定
 export default defineConfig({
   plugins: [
+    // Preact をViteに組み込む（型の不一致を回避するために明示キャスト）
+    preact() as unknown as PluginOption,
     tailwindcss(),
     copyFiles(),
     {
