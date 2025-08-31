@@ -1,4 +1,5 @@
 import { getSettings, type Settings } from "../common/chrome_storage";
+import { extractContent } from "./content_extractor";
 import "./alarm"; // アラーム処理の初期化
 
 /**
@@ -57,7 +58,7 @@ export function shouldDelete(
  */
 export async function markAsReadAndNotify(
   entry: chrome.readingList.ReadingListEntry,
-  _settings: Settings,
+  settings: Settings,
 ): Promise<void> {
   try {
     console.log(`既読化処理開始: ${entry.title} (${entry.url})`);
@@ -70,9 +71,26 @@ export async function markAsReadAndNotify(
 
     console.log(`既読化完了: ${entry.title}`);
 
-    // TODO: Firecrawl SDK での本文抽出と OpenAI API での要約、Slack 投稿処理を実装
-    // 現在は要約・投稿機能をスキップして既読化のみ実行
-    console.log("要約・Slack投稿機能は今後実装予定");
+    // Firecrawl SDK で本文抽出
+    if (settings.firecrawlApiKey) {
+      const extractResult = await extractContent(
+        entry.url,
+        settings.firecrawlApiKey,
+      );
+
+      if (extractResult.success) {
+        console.log(`本文抽出成功: ${entry.title}`);
+        // TODO: OpenAI API での要約、Slack 投稿処理を実装
+        console.log("要約・Slack投稿機能は今後実装予定");
+      } else {
+        console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
+        // TODO: 抽出失敗をSlackに通知する処理を実装
+      }
+    } else {
+      console.log(
+        `Firecrawl API キーが未設定のため、本文抽出をスキップ: ${entry.title}`,
+      );
+    }
   } catch (error) {
     console.error(`既読化エラー: ${entry.title}`, error);
     throw error;

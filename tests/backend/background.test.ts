@@ -48,6 +48,7 @@ describe("getSettings", () => {
       openaiApiKey: undefined,
       openaiModel: undefined,
       slackWebhookUrl: undefined,
+      firecrawlApiKey: undefined,
     });
     expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
       "daysUntilRead",
@@ -56,6 +57,7 @@ describe("getSettings", () => {
       "openaiApiKey",
       "openaiModel",
       "slackWebhookUrl",
+      "firecrawlApiKey",
     ]);
   });
 
@@ -67,6 +69,7 @@ describe("getSettings", () => {
       openaiApiKey: "test-key",
       openaiModel: "gpt-3.5-turbo",
       slackWebhookUrl: "https://hooks.slack.com/test",
+      firecrawlApiKey: "fc-test-key",
     };
     mockChromeStorageLocal.get.mockResolvedValue(storedSettings);
 
@@ -246,6 +249,7 @@ describe("markAsReadAndNotify", () => {
     openaiApiKey: "test-key",
     openaiModel: "gpt-4o-mini",
     slackWebhookUrl: "https://hooks.slack.com/test",
+    firecrawlApiKey: "fc-test-key",
   };
 
   it("エントリを正常に既読化", async () => {
