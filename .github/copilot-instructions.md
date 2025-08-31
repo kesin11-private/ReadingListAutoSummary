@@ -7,7 +7,7 @@ This is a Chrome extension (Manifest V3) that automatically manages Chrome's Rea
 
 ### Entry Points & Build System
 - **Background Script**: `src/backend/background.ts` - Main service worker (currently empty, needs implementation)
-- **Options Page**: `src/frontend/options/options.html` - Settings UI (currently minimal HTML shell)
+- **Options Page**: `src/frontend/options/options.html` - Settings UI (implemented with Preact; entry: `src/frontend/options/options.tsx`)
 - **Build System**: Custom Vite config with specialized Chrome extension bundling
 
 The build process uses a unique dual-bundling approach:
@@ -28,7 +28,7 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - **Permissions**: `["storage", "readingList"]` in `manifest.json`
 - **Storage**: Uses `chrome.storage.local` for settings persistence
 - **Background**: Service worker runs periodically to process Reading List entries
-- **No dependencies**: The project has zero runtime dependencies (only devDependencies)
+- **Runtime dependencies**: Minimal. The options page uses `preact` (bundled). Others are primarily devDependencies.
 
 ### Data Flow Pattern
 1. Background script queries `chrome.readingList` API
@@ -51,6 +51,18 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 ```
 
 ## Development Patterns
+
+### Frontend UI: Preact
+- The options page is implemented with Preact
+  - Entry: `src/frontend/options/options.tsx` (mounted to `#root`)
+  - Loaded from HTML: add `<script type="module" src="/src/frontend/options/options.tsx"></script>` to `src/frontend/options/options.html`
+- Vite configuration
+  - Add `@preact/preset-vite` to `plugins` in `vite.config.ts`
+  - With strict typing, if types mismatch, cast `preact()` to `PluginOption` to work around
+- TypeScript configuration
+  - Set `"jsx": "react-jsx"` and `"jsxImportSource": "preact"` in `tsconfig.json`
+- Tests
+  - Runs in the existing jsdom environment (no extra setup required)
 
 ### Testing Structure
 - **Frontend tests**: `tests/frontend/**/*.test.ts` (jsdom environment)  
@@ -75,7 +87,7 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 
 ## File Patterns
 - Backend code: `src/backend/` (Service worker)
-- Frontend code: `src/frontend/` (Options page)
+- Frontend code: `src/frontend/` (Options page; Preact entry at `src/frontend/options/options.tsx`)
 - Tests mirror source structure: `tests/{backend|frontend}/`
 - Build output: `dist/` with specialized structure for Chrome extension
 
