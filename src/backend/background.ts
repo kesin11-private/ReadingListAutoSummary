@@ -1,12 +1,3 @@
-// Chrome Reading List API型定義
-interface ReadingListEntry {
-  url: string;
-  title: string;
-  hasBeenRead: boolean;
-  creationTime: number;
-  lastUpdateTime: number;
-}
-
 interface Settings {
   daysUntilRead: number;
   daysUntilDelete: number;
@@ -54,25 +45,12 @@ export async function getSettings(): Promise<Settings> {
 /**
  * Chromeリーディングリストからエントリ一覧を取得
  */
-export async function getReadingListEntries(): Promise<ReadingListEntry[]> {
+export async function getReadingListEntries(): Promise<
+  chrome.readingList.ReadingListEntry[]
+> {
   try {
-    console.log("📚 リーディングリスト取得開始");
     const entries = await chrome.readingList.query({});
     console.log(`📊 取得件数: ${entries.length}件`);
-
-    // 各エントリの状態をデバッグログ出力
-    for (const entry of entries) {
-      const status = entry.hasBeenRead ? "既読" : "未読";
-      const createdDate = new Date(entry.creationTime).toLocaleDateString(
-        "ja-JP",
-      );
-      const updatedDate = new Date(entry.lastUpdateTime).toLocaleDateString(
-        "ja-JP",
-      );
-      console.log(
-        `🔍 [${status}] ${entry.title} (作成: ${createdDate}, 更新: ${updatedDate})`,
-      );
-    }
 
     return entries;
   } catch (error) {
@@ -85,7 +63,7 @@ export async function getReadingListEntries(): Promise<ReadingListEntry[]> {
  * 未読エントリが既読化の対象かどうかを判定
  */
 export function shouldMarkAsRead(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   daysUntilRead: number,
 ): boolean {
   if (entry.hasBeenRead) {
@@ -102,7 +80,7 @@ export function shouldMarkAsRead(
  * 既読エントリが削除の対象かどうかを判定
  */
 export function shouldDelete(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   daysUntilDelete: number,
 ): boolean {
   if (!entry.hasBeenRead) {

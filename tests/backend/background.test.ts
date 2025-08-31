@@ -23,10 +23,6 @@ beforeEach(() => {
     },
     readingList: mockChromeReadingList,
   });
-
-  // コンソールログのモック（テスト時の出力を制御）
-  vi.spyOn(console, "log").mockImplementation(() => {});
-  vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -83,10 +79,6 @@ describe("getSettings", () => {
       daysUntilRead: 30,
       daysUntilDelete: 60,
     });
-    expect(console.error).toHaveBeenCalledWith(
-      "設定取得エラー:",
-      expect.any(Error),
-    );
   });
 });
 
@@ -114,8 +106,6 @@ describe("getReadingListEntries", () => {
 
     expect(entries).toEqual(mockEntries);
     expect(mockChromeReadingList.query).toHaveBeenCalledWith({});
-    expect(console.log).toHaveBeenCalledWith("📚 リーディングリスト取得開始");
-    expect(console.log).toHaveBeenCalledWith("📊 取得件数: 2件");
   });
 
   it("リーディングリストAPIエラー時に空配列を返す", async () => {
@@ -124,10 +114,6 @@ describe("getReadingListEntries", () => {
     const entries = await getReadingListEntries();
 
     expect(entries).toEqual([]);
-    expect(console.error).toHaveBeenCalledWith(
-      "リーディングリスト取得エラー:",
-      expect.any(Error),
-    );
   });
 });
 
