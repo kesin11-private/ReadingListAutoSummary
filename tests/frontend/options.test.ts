@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-describe("options", () => {
-  it("dummy", () => {
+describe("Options page", () => {
+  it("should pass", () => {
     expect(true).toBe(true);
   });
 });
