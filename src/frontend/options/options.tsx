@@ -1,49 +1,37 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import {
+  DEFAULT_SETTINGS,
+  getSettings,
+  type Settings,
+  saveSettings as saveSettingsToStorage,
+  validateSettings,
+} from "../../common/chrome_storage";
 
-interface Settings {
-  daysUntilRead: number;
-  daysUntilDelete: number;
-  openaiEndpoint?: string;
-  openaiApiKey?: string;
-  openaiModel?: string;
-  slackWebhookUrl?: string;
-}
-
-const DEFAULT_SETTINGS: Settings = {
-  daysUntilRead: 30,
-  daysUntilDelete: 60,
-};
+type SaveStatus = "idle" | "success" | "error";
 
 function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveMessage, setSaveMessage] = useState("");
 
   // 設定を読み込み
   const loadSettings = async () => {
     try {
-      const result = await chrome.storage.local.get([
-        "daysUntilRead",
-        "daysUntilDelete",
-        "openaiEndpoint",
-        "openaiApiKey",
-        "openaiModel",
-        "slackWebhookUrl",
-      ]);
-
+      const loadedSettings = await getSettings();
       setSettings({
-        daysUntilRead: result.daysUntilRead ?? DEFAULT_SETTINGS.daysUntilRead,
-        daysUntilDelete:
-          result.daysUntilDelete ?? DEFAULT_SETTINGS.daysUntilDelete,
-        openaiEndpoint: result.openaiEndpoint || "",
-        openaiApiKey: result.openaiApiKey || "",
-        openaiModel: result.openaiModel || "",
-        slackWebhookUrl: result.slackWebhookUrl || "",
+        ...loadedSettings,
+        // 空文字列の場合は表示用に空文字列を設定
+        openaiEndpoint: loadedSettings.openaiEndpoint || "",
+        openaiApiKey: loadedSettings.openaiApiKey || "",
+        openaiModel: loadedSettings.openaiModel || "",
+        slackWebhookUrl: loadedSettings.slackWebhookUrl || "",
       });
     } catch (error) {
       console.error("設定読み込みエラー:", error);
+      setSaveStatus("error");
       setSaveMessage("設定の読み込みに失敗しました。");
     } finally {
       setIsLoading(false);
@@ -51,28 +39,33 @@ function App() {
   };
 
   // 設定を保存
-  const saveSettings = async () => {
+  const handleSaveSettings = async () => {
     setIsSaving(true);
+    setSaveStatus("idle");
     setSaveMessage("");
 
-    try {
-      await chrome.storage.local.set({
-        daysUntilRead: settings.daysUntilRead,
-        daysUntilDelete: settings.daysUntilDelete,
-        ...(settings.openaiEndpoint && {
-          openaiEndpoint: settings.openaiEndpoint,
-        }),
-        ...(settings.openaiApiKey && { openaiApiKey: settings.openaiApiKey }),
-        ...(settings.openaiModel && { openaiModel: settings.openaiModel }),
-        ...(settings.slackWebhookUrl && {
-          slackWebhookUrl: settings.slackWebhookUrl,
-        }),
-      });
+    // バリデーション
+    const validationErrors = validateSettings(settings);
+    if (validationErrors.length > 0) {
+      setSaveStatus("error");
+      setSaveMessage(
+        validationErrors[0] || "バリデーションエラーが発生しました",
+      ); // 最初のエラーメッセージを表示
+      setIsSaving(false);
+      return;
+    }
 
+    try {
+      await saveSettingsToStorage(settings);
+      setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
-      setTimeout(() => setSaveMessage(""), 3000);
+      setTimeout(() => {
+        setSaveStatus("idle");
+        setSaveMessage("");
+      }, 3000);
     } catch (error) {
       console.error("設定保存エラー:", error);
+      setSaveStatus("error");
       setSaveMessage("設定の保存に失敗しました。");
     } finally {
       setIsSaving(false);
@@ -106,7 +99,7 @@ function App() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          saveSettings();
+          handleSaveSettings();
         }}
         class="space-y-6"
       >
@@ -283,7 +276,7 @@ function App() {
 
           {saveMessage && (
             <span
-              class={`text-sm ${saveMessage.includes("失敗") ? "text-red-600" : "text-green-600"}`}
+              class={`text-sm ${saveStatus === "error" ? "text-red-600" : "text-green-600"}`}
             >
               {saveMessage}
             </span>

@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteEntry,
   getReadingListEntries,
-  getSettings,
   markAsReadAndNotify,
   processReadingListEntries,
   shouldDelete,
   shouldMarkAsRead,
 } from "../../src/backend/background";
+import { getSettings } from "../../src/common/chrome_storage";
 
 // Chrome API のモック設定
 const mockChromeStorageLocal = {
