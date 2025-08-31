@@ -43,6 +43,6 @@
 
     // For bundler
     "moduleResolution": "bundler",
-    "noEmit": true,
+    "noEmit": true
   }
 }

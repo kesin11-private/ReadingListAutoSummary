@@ -8,17 +8,13 @@ export default defineConfig({
       {
         test: {
           environment: "jsdom",
-          include: [
-            "tests/frontend/**/*.test.ts",
-          ],
+          include: ["tests/frontend/**/*.test.ts"],
         },
       },
       {
         test: {
           environment: "node",
-          include: [
-            "tests/backend/**/*.test.ts",
-          ],
+          include: ["tests/backend/**/*.test.ts"],
         },
       },
     ],

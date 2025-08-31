@@ -8,8 +8,5 @@
     "service_worker": "src/backend/background.js",
     "type": "module"
   },
-  "permissions": [
-    "storage",
-    "readingList"
-  ]
+  "permissions": ["storage", "readingList"]
 }
