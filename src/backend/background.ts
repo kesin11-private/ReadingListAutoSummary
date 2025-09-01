@@ -1,6 +1,16 @@
 import { getSettings, type Settings } from "../common/chrome_storage";
-import type { ExtractContentMessage } from "../types/messages";
+import type {
+  ExtractContentMessage,
+  SummarizeTestMessage,
+} from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
+import {
+  formatSlackErrorMessage,
+  formatSlackMessage,
+  type SummarizeResult,
+  type SummarizerConfig,
+  summarizeContent,
+} from "./summarizer";
 import "./alarm"; // アラーム処理の初期化
 
 /**
@@ -11,9 +21,11 @@ function initializeMessageHandlers(): void {
   if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener(
       (
-        request: ExtractContentMessage,
+        request: ExtractContentMessage | SummarizeTestMessage,
         _sender: chrome.runtime.MessageSender,
-        sendResponse: (response: ExtractContentResult) => void,
+        sendResponse: (
+          response: ExtractContentResult | SummarizeResult,
+        ) => void,
       ) => {
         if (request.type === "EXTRACT_CONTENT") {
           handleExtractContentMessage(request.url)
@@ -26,6 +38,24 @@ function initializeMessageHandlers(): void {
             });
           return true; // Will respond asynchronously
         }
+
+        if (request.type === "SUMMARIZE_TEST") {
+          handleSummarizeTestMessage(
+            request.title,
+            request.url,
+            request.content,
+          )
+            .then(sendResponse)
+            .catch((error: unknown) => {
+              sendResponse({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+          return true; // Will respond asynchronously
+        }
+
+        return false;
       },
     );
   }
@@ -49,6 +79,44 @@ async function handleExtractContentMessage(
     }
 
     return await extractContent(url, settings.firecrawlApiKey);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 要約テストメッセージハンドラー
+ */
+async function handleSummarizeTestMessage(
+  title: string,
+  url: string,
+  content: string,
+): Promise<SummarizeResult> {
+  try {
+    const settings = await getSettings();
+
+    if (
+      !settings.openaiEndpoint ||
+      !settings.openaiApiKey ||
+      !settings.openaiModel
+    ) {
+      return {
+        success: false,
+        error:
+          "OpenAI設定（エンドポイント、APIキー、モデル名）が不完全です。設定を保存してからお試しください。",
+      };
+    }
+
+    const summarizerConfig: SummarizerConfig = {
+      endpoint: settings.openaiEndpoint,
+      apiKey: settings.openaiApiKey,
+      model: settings.openaiModel,
+    };
+
+    return await summarizeContent(title, url, content, summarizerConfig);
   } catch (error) {
     return {
       success: false,
@@ -112,6 +180,32 @@ export function shouldDelete(
 }
 
 /**
+ * Slackに投稿する
+ */
+async function postToSlack(webhookUrl: string, message: string): Promise<void> {
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: message,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    console.log("Slack投稿成功");
+  } catch (error) {
+    console.error("Slack投稿失敗:", error);
+    throw error;
+  }
+}
+
+/**
  * 未読エントリを既読化し、要約をSlackへ投稿
  */
 export async function markAsReadAndNotify(
@@ -129,20 +223,72 @@ export async function markAsReadAndNotify(
 
     console.log(`既読化完了: ${entry.title}`);
 
-    // Firecrawl SDK で本文抽出
+    // 本文抽出とSlack投稿処理
     if (settings.firecrawlApiKey) {
       const extractResult = await extractContent(
         entry.url,
         settings.firecrawlApiKey,
       );
 
-      if (extractResult.success) {
+      if (extractResult.success && extractResult.content) {
         console.log(`本文抽出成功: ${entry.title}`);
-        // TODO: OpenAI API での要約、Slack 投稿処理を実装
-        console.log("要約・Slack投稿機能は今後実装予定");
+
+        // OpenAI設定があれば要約を生成してSlackに投稿
+        if (
+          settings.openaiEndpoint &&
+          settings.openaiApiKey &&
+          settings.openaiModel &&
+          settings.slackWebhookUrl
+        ) {
+          const summarizerConfig: SummarizerConfig = {
+            endpoint: settings.openaiEndpoint,
+            apiKey: settings.openaiApiKey,
+            model: settings.openaiModel,
+          };
+
+          const summarizeResult = await summarizeContent(
+            entry.title,
+            entry.url,
+            extractResult.content,
+            summarizerConfig,
+          );
+
+          let slackMessage: string;
+          if (summarizeResult.success && summarizeResult.summary) {
+            slackMessage = formatSlackMessage(
+              entry.title,
+              entry.url,
+              settings.openaiModel,
+              summarizeResult.summary,
+            );
+          } else {
+            slackMessage = formatSlackErrorMessage(
+              entry.title,
+              entry.url,
+              settings.openaiModel,
+              summarizeResult.error || "不明なエラー",
+            );
+          }
+
+          await postToSlack(settings.slackWebhookUrl, slackMessage);
+        } else {
+          console.log(
+            "OpenAI設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
+          );
+        }
       } else {
         console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
-        // TODO: 抽出失敗をSlackに通知する処理を実装
+
+        // 抽出失敗もSlackに通知（Slack設定があれば）
+        if (settings.slackWebhookUrl && settings.openaiModel) {
+          const errorMessage = formatSlackErrorMessage(
+            entry.title,
+            entry.url,
+            settings.openaiModel,
+            `本文抽出失敗: ${extractResult.error}`,
+          );
+          await postToSlack(settings.slackWebhookUrl, errorMessage);
+        }
       }
     } else {
       console.error(
