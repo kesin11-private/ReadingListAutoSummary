@@ -18,10 +18,12 @@ const { extractContent } = await import("../../src/backend/content_extractor");
 describe("extractContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("APIキーが未設定の場合、エラーを返す", async () => {
@@ -54,8 +56,6 @@ describe("extractContent", () => {
   });
 
   it("抽出された本文が空の場合、エラーを返す", async () => {
-    vi.useFakeTimers();
-
     mockScrapeUrl.mockResolvedValue({
       markdown: "",
     });
@@ -69,13 +69,9 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("抽出された本文が空です");
-
-    vi.useRealTimers();
   });
 
   it("markdownフィールドが存在しない場合、エラーを返す", async () => {
-    vi.useFakeTimers();
-
     mockScrapeUrl.mockResolvedValue({});
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
@@ -87,13 +83,9 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("抽出された本文が空です");
-
-    vi.useRealTimers();
   });
 
   it("APIエラー時に1回目で失敗したら2回目で成功する", async () => {
-    vi.useFakeTimers();
-
     const mockContent = "# 回復成功\n\n最終的に成功した内容";
     mockScrapeUrl
       .mockRejectedValueOnce(new Error("API timeout"))
@@ -113,13 +105,9 @@ describe("extractContent", () => {
       content: mockContent,
     });
     expect(mockScrapeUrl).toHaveBeenCalledTimes(2);
-
-    vi.useRealTimers();
   });
 
   it("3回連続で失敗した場合、最終的にエラーを返す", async () => {
-    vi.useFakeTimers();
-
     const apiError = new Error("Persistent API error");
     mockScrapeUrl
       .mockRejectedValueOnce(apiError)
@@ -138,14 +126,10 @@ describe("extractContent", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe("Persistent API error");
     expect(mockScrapeUrl).toHaveBeenCalledTimes(3);
-
-    vi.useRealTimers();
   });
 
   it("リトライ間に適切な遅延が発生する", async () => {
     // vitestのタイマーモックを使用
-    vi.useFakeTimers();
-
     const apiError = new Error("Network error");
     mockScrapeUrl
       .mockRejectedValueOnce(apiError)
@@ -165,8 +149,6 @@ describe("extractContent", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe("Network error");
     expect(mockScrapeUrl).toHaveBeenCalledTimes(3);
-
-    vi.useRealTimers();
   });
 
   it("空白文字のみのAPIキーでエラーを返す", async () => {
@@ -179,8 +161,6 @@ describe("extractContent", () => {
   });
 
   it("非Error型の例外もハンドリングする", async () => {
-    vi.useFakeTimers();
-
     mockScrapeUrl.mockRejectedValue("文字列エラー");
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
@@ -192,7 +172,5 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("文字列エラー");
-
-    vi.useRealTimers();
   });
 });
