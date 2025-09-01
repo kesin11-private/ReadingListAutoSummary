@@ -1,9 +1,21 @@
 import { useState } from "preact/hooks";
 import type { ExtractContentResult } from "../../backend/content_extractor";
+import type { ExtractContentMessage } from "../../types/messages";
 
-interface ExtractContentMessage {
-  type: "EXTRACT_CONTENT";
-  url: string;
+/**
+ * Type guard to validate ExtractContentResult
+ */
+function isExtractContentResult(obj: unknown): obj is ExtractContentResult {
+  if (typeof obj !== "object" || obj === null) {
+    return false;
+  }
+
+  const result = obj as Record<string, unknown>;
+  return (
+    typeof result.success === "boolean" &&
+    (result.success === false || typeof result.content === "string") &&
+    (result.success === true || typeof result.error === "string")
+  );
 }
 
 export function ContentExtractorTest() {
@@ -30,7 +42,15 @@ export function ContentExtractorTest() {
       };
 
       const response = await chrome.runtime.sendMessage(message);
-      setResult(response as ExtractContentResult);
+
+      if (isExtractContentResult(response)) {
+        setResult(response);
+      } else {
+        setResult({
+          success: false,
+          error: "不正なレスポンス形式です",
+        });
+      }
     } catch (error) {
       setResult({
         success: false,
@@ -83,8 +103,7 @@ export function ContentExtractorTest() {
                 </div>
                 <div class="bg-white border rounded-md p-3 max-h-64 overflow-y-auto">
                   <pre class="text-xs text-gray-700 whitespace-pre-wrap">
-                    {result.content?.substring(0, 1000)}
-                    {result.content && result.content.length > 1000 && "..."}
+                    {result.content}
                   </pre>
                 </div>
               </div>

@@ -1,11 +1,7 @@
 import { getSettings, type Settings } from "../common/chrome_storage";
+import type { ExtractContentMessage } from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
 import "./alarm"; // アラーム処理の初期化
-
-interface ExtractContentMessage {
-  type: "EXTRACT_CONTENT";
-  url: string;
-}
 
 /**
  * メッセージハンドラーの初期化

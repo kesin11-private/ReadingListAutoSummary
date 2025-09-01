@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ExtractContentResult } from "../../src/backend/content_extractor";
 
 // ExtractContent モックの設定
 const mockExtractContent = vi.fn();
@@ -22,17 +23,14 @@ const mockChromeRuntime = {
   sendMessage: vi.fn(),
 };
 
-let messageListener:
-  | ((
-      request: { type: string; url: string },
-      sender: chrome.runtime.MessageSender,
-      sendResponse: (response: {
-        success: boolean;
-        content?: string;
-        error?: string;
-      }) => void,
-    ) => boolean)
-  | null = null;
+// Type alias for complex message listener function type
+type MessageListener = (
+  request: { type: string; url?: string },
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: ExtractContentResult) => void,
+) => boolean | undefined;
+
+let messageListener: MessageListener | null = null;
 
 // グローバルchrome オブジェクトのモック
 beforeEach(() => {
