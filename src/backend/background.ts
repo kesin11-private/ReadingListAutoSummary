@@ -1,6 +1,68 @@
 import { getSettings, type Settings } from "../common/chrome_storage";
-import { extractContent } from "./content_extractor";
+import { type ExtractContentResult, extractContent } from "./content_extractor";
 import "./alarm"; // アラーム処理の初期化
+
+interface ExtractContentMessage {
+  type: "EXTRACT_CONTENT";
+  url: string;
+}
+
+/**
+ * メッセージハンドラーの初期化
+ */
+function initializeMessageHandlers(): void {
+  // Chrome extension runtime environment check
+  if (typeof chrome !== "undefined" && chrome.runtime) {
+    chrome.runtime.onMessage.addListener(
+      (
+        request: ExtractContentMessage,
+        _sender: chrome.runtime.MessageSender,
+        sendResponse: (response: ExtractContentResult) => void,
+      ) => {
+        if (request.type === "EXTRACT_CONTENT") {
+          handleExtractContentMessage(request.url)
+            .then(sendResponse)
+            .catch((error) => {
+              sendResponse({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+          return true; // Will respond asynchronously
+        }
+      },
+    );
+  }
+}
+
+/**
+ * コンテンツ抽出メッセージハンドラー
+ */
+async function handleExtractContentMessage(
+  url: string,
+): Promise<ExtractContentResult> {
+  try {
+    const settings = await getSettings();
+
+    if (!settings.firecrawlApiKey) {
+      return {
+        success: false,
+        error:
+          "Firecrawl API キーが設定されていません。設定を保存してからお試しください。",
+      };
+    }
+
+    return await extractContent(url, settings.firecrawlApiKey);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// Initialize message handlers
+initializeMessageHandlers();
 
 /**
  * Chromeリーディングリストからエントリ一覧を取得
