@@ -29,12 +29,10 @@ async function retryWithExponentialBackoff<T>(
         break;
       }
 
-      // 1回目の試行後のみ指数バックオフで待機
-      if (attempt > 1) {
-        const delay = baseDelay * 2 ** (attempt - 2);
-        console.log(`${delay}ms 待機してリトライします...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
+      // リトライ前に指数バックオフで待機
+      const delay = baseDelay * 2 ** (attempt - 1);
+      console.log(`${delay}ms 待機してリトライします...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
