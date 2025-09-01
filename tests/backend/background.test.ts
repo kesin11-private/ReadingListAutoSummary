@@ -9,6 +9,16 @@ import {
 } from "../../src/backend/background";
 import { getSettings } from "../../src/common/chrome_storage";
 
+// content_extractor モジュールのモック
+vi.mock("../../src/backend/content_extractor", () => ({
+  extractContent: vi.fn(),
+}));
+
+// モックされた extractContent 関数を取得
+const { extractContent: mockExtractContent } = await import(
+  "../../src/backend/content_extractor"
+);
+
 // Chrome API のモック設定
 const mockChromeStorageLocal = {
   get: vi.fn(),
@@ -262,6 +272,10 @@ describe("markAsReadAndNotify", () => {
     };
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: "# テスト記事\n\nテスト本文",
+    });
 
     await markAsReadAndNotify(entry, mockSettings);
 
@@ -269,6 +283,10 @@ describe("markAsReadAndNotify", () => {
       url: entry.url,
       hasBeenRead: true,
     });
+    expect(mockExtractContent).toHaveBeenCalledWith(
+      entry.url,
+      mockSettings.firecrawlApiKey,
+    );
   });
 
   it("既読化APIエラー時に例外をスロー", async () => {
