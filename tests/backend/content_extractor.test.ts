@@ -54,26 +54,46 @@ describe("extractContent", () => {
   });
 
   it("抽出された本文が空の場合、エラーを返す", async () => {
+    vi.useFakeTimers();
+
     mockScrapeUrl.mockResolvedValue({
       markdown: "",
     });
 
-    const result = await extractContent("https://example.com", "fc-test-key");
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
+
+    // リトライの遅延をスキップ (1000ms + 2000ms)
+    await vi.advanceTimersByTimeAsync(3000);
+
+    const result = await extractPromise;
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("抽出された本文が空です");
+
+    vi.useRealTimers();
   });
 
   it("markdownフィールドが存在しない場合、エラーを返す", async () => {
+    vi.useFakeTimers();
+
     mockScrapeUrl.mockResolvedValue({});
 
-    const result = await extractContent("https://example.com", "fc-test-key");
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
+
+    // リトライの遅延をスキップ (1000ms + 2000ms)
+    await vi.advanceTimersByTimeAsync(3000);
+
+    const result = await extractPromise;
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("抽出された本文が空です");
+
+    vi.useRealTimers();
   });
 
   it("APIエラー時に1回目で失敗したら2回目で成功する", async () => {
+    vi.useFakeTimers();
+
     const mockContent = "# 回復成功\n\n最終的に成功した内容";
     mockScrapeUrl
       .mockRejectedValueOnce(new Error("API timeout"))
@@ -81,27 +101,45 @@ describe("extractContent", () => {
         markdown: mockContent,
       });
 
-    const result = await extractContent("https://example.com", "fc-test-key");
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
+
+    // 1回目失敗後の1000ms遅延をスキップ
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const result = await extractPromise;
 
     expect(result).toEqual({
       success: true,
       content: mockContent,
     });
     expect(mockScrapeUrl).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 
   it("3回連続で失敗した場合、最終的にエラーを返す", async () => {
+    vi.useFakeTimers();
+
     const apiError = new Error("Persistent API error");
     mockScrapeUrl
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError);
 
-    const result = await extractContent("https://example.com", "fc-test-key");
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
+
+    // 1回目失敗後の1000ms遅延をスキップ
+    await vi.advanceTimersByTimeAsync(1000);
+    // 2回目失敗後の2000ms遅延をスキップ
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const result = await extractPromise;
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("Persistent API error");
     expect(mockScrapeUrl).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
   });
 
   it("リトライ間に適切な遅延が発生する", async () => {
@@ -141,11 +179,20 @@ describe("extractContent", () => {
   });
 
   it("非Error型の例外もハンドリングする", async () => {
+    vi.useFakeTimers();
+
     mockScrapeUrl.mockRejectedValue("文字列エラー");
 
-    const result = await extractContent("https://example.com", "fc-test-key");
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
+
+    // リトライの遅延をスキップ (1000ms + 2000ms)
+    await vi.advanceTimersByTimeAsync(3000);
+
+    const result = await extractPromise;
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("文字列エラー");
+
+    vi.useRealTimers();
   });
 });
