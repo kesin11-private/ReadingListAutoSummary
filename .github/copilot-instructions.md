@@ -92,6 +92,11 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - Tests mirror source structure: `tests/{backend|frontend}/`
 - Build output: `dist/` with specialized structure for Chrome extension
 
+## Package Management
+- **Use pnpm**: Always use `pnpm` for package management, not npm or yarn
+- Install packages with `pnpm add <package>`
+- Install dev dependencies with `pnpm add -D <package>`
+
 ## External Dependencies (Not Yet Installed)
 Based on README.md, the following will be needed:
 - Firecrawl JS SDK for content extraction
