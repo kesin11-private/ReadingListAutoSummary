@@ -40,13 +40,12 @@ function isSummarizeResult(obj: unknown): obj is SummarizeResult {
 
 export function ContentExtractorTest() {
   const [url, setUrl] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<ExtractContentResult | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const [summarizeResult, setSummarizeResult] =
     useState<SummarizeResult | null>(null);
 
-  const handleExtractContent = async () => {
+  const handleExtractAndSummarize = async () => {
     if (!url.trim()) {
       setResult({
         success: false,
@@ -55,63 +54,48 @@ export function ContentExtractorTest() {
       return;
     }
 
-    setIsLoading(true);
+    setIsProcessing(true);
     setResult(null);
     setSummarizeResult(null);
 
     try {
-      const message: ExtractContentMessage = {
+      // Step 1: Extract content
+      const extractMessage: ExtractContentMessage = {
         type: "EXTRACT_CONTENT",
         url: url.trim(),
       };
 
-      const response = await chrome.runtime.sendMessage(message);
+      const extractResponse = await chrome.runtime.sendMessage(extractMessage);
 
-      if (isExtractContentResult(response)) {
-        setResult(response);
-      } else {
+      if (!isExtractContentResult(extractResponse)) {
         setResult({
           success: false,
           error: "不正なレスポンス形式です",
         });
+        return;
       }
-    } catch (error) {
-      setResult({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const handleSummarizeContent = async () => {
-    if (!result?.success || !result.content) {
-      setSummarizeResult({
-        success: false,
-        error: "まず、コンテンツを抽出してください",
-      });
-      return;
-    }
+      setResult(extractResponse);
 
-    setIsSummarizing(true);
-    setSummarizeResult(null);
+      if (!extractResponse.success || !extractResponse.content) {
+        return; // Extraction failed, stop here
+      }
 
-    try {
-      // URLからタイトルを抽出（簡易実装）
+      // Step 2: Summarize content
       const title = new URL(url.trim()).hostname;
 
-      const message: SummarizeTestMessage = {
+      const summarizeMessage: SummarizeTestMessage = {
         type: "SUMMARIZE_TEST",
         title,
         url: url.trim(),
-        content: result.content,
+        content: extractResponse.content,
       };
 
-      const response = await chrome.runtime.sendMessage(message);
+      const summarizeResponse =
+        await chrome.runtime.sendMessage(summarizeMessage);
 
-      if (isSummarizeResult(response)) {
-        setSummarizeResult(response);
+      if (isSummarizeResult(summarizeResponse)) {
+        setSummarizeResult(summarizeResponse);
       } else {
         setSummarizeResult({
           success: false,
@@ -119,12 +103,24 @@ export function ContentExtractorTest() {
         });
       }
     } catch (error) {
-      setSummarizeResult({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      // If no extraction result yet, set extraction error
+      if (!result) {
+        setResult({
+          success: false,
+          error: errorMessage,
+        });
+      } else {
+        // If extraction was successful but summarization failed
+        setSummarizeResult({
+          success: false,
+          error: errorMessage,
+        });
+      }
     } finally {
-      setIsSummarizing(false);
+      setIsProcessing(false);
     }
   };
 
@@ -147,27 +143,18 @@ export function ContentExtractorTest() {
             value={url}
             onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={isLoading}
+            disabled={isProcessing}
           />
         </div>
 
-        <div class="flex gap-2">
+        <div>
           <button
             type="button"
-            onClick={handleExtractContent}
-            disabled={isLoading || !url.trim()}
+            onClick={handleExtractAndSummarize}
+            disabled={isProcessing || !url.trim()}
             class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? "抽出中..." : "コンテンツを抽出"}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSummarizeContent}
-            disabled={isSummarizing || !result?.success || !result.content}
-            class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSummarizing ? "要約中..." : "要約を生成"}
+            {isProcessing ? "処理中..." : "コンテンツ抽出・要約生成"}
           </button>
         </div>
 

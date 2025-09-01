@@ -191,7 +191,9 @@ describe("summarizer", () => {
         messages: [
           {
             role: "system",
-            content: expect.stringContaining("3つの文に分けて要約"),
+            content: expect.stringContaining(
+              "テキストから本文を抜き出し、日本語で要約してください",
+            ),
           },
           {
             role: "user",

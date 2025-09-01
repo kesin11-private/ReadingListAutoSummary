@@ -61,11 +61,17 @@ export async function summarizeContent(
           {
             role: "system",
             content:
-              "あなたは優秀な要約専門家です。与えられたWebページの内容を、以下の条件で要約してください：\n" +
-              "- 3つの文に分けて要約する\n" +
-              "- 全体で600文字以内に収める\n" +
-              "- 各文は改行で区切る\n" +
-              "- 重要なポイントを逃さず、読みやすく簡潔にまとめる",
+              "テキストから本文を抜き出し、日本語で要約してください。\n" +
+              "要約は技術的な内容に焦点を当て、 **3文に分けて** 600文字程度にしてください。\n\n" +
+              "<format>\n\n" +
+              "{section1}\n\n" +
+              "{section2}\n\n" +
+              "{section3}\n" +
+              "</format>\n\n" +
+              "<example>\n\n" +
+              "macOSのコマンドラインツールが設定ファイルを~/Library/Application Supportに配置するのは不適切であり、ユーザーの期待やXDG Base Directory Specificationに反していると筆者は主張しています。\n\n" +
+              "多くのCLIツールやdotfileマネージャーも~/.configをデフォルトとしており、~/Library/Application SupportはGUIアプリケーションがユーザーに代わって設定を管理する場合にのみ適していると結論付けています。\n\n" +
+              "</example>",
           },
           {
             role: "user",
