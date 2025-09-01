@@ -18,9 +18,6 @@ const { extractContent } = await import("../../src/backend/content_extractor");
 describe("extractContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // コンソールログをモック（テスト出力を静かにするため）
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -108,41 +105,30 @@ describe("extractContent", () => {
   });
 
   it("リトライ間に適切な遅延が発生する", async () => {
+    // vitestのタイマーモックを使用
+    vi.useFakeTimers();
+
     const apiError = new Error("Network error");
-
-    // setTimeout をモックして時間をコントロール
-    const mockSetTimeout = vi.spyOn(global, "setTimeout").mockImplementation(
-      // biome-ignore lint/suspicious/noExplicitAny: vitest mock type compatibility
-      ((callback: () => void, _delay: number) => {
-        // 実際の遅延は発生させずに即座に実行
-        callback();
-        // biome-ignore lint/suspicious/noExplicitAny: vitest mock return type compatibility
-        return 0 as any;
-        // biome-ignore lint/suspicious/noExplicitAny: vitest mock type compatibility
-      }) as any,
-    );
-
     mockScrapeUrl
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError);
 
-    await extractContent("https://example.com", "fc-test-key");
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
 
-    // リトライの遅延が適切に設定されているかチェック
-    expect(mockSetTimeout).toHaveBeenCalledTimes(2); // 1回目と2回目の失敗後
-    expect(mockSetTimeout).toHaveBeenNthCalledWith(
-      1,
-      expect.any(Function),
-      1000,
-    ); // 1秒
-    expect(mockSetTimeout).toHaveBeenNthCalledWith(
-      2,
-      expect.any(Function),
-      2000,
-    ); // 2秒
+    // 最初の試行は失敗し、2回目の試行前に1000ms待機
+    await vi.advanceTimersByTimeAsync(1000);
 
-    mockSetTimeout.mockRestore();
+    // 2回目の試行も失敗し、3回目の試行前に2000ms待機
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const result = await extractPromise;
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Network error");
+    expect(mockScrapeUrl).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
   });
 
   it("空白文字のみのAPIキーでエラーを返す", async () => {

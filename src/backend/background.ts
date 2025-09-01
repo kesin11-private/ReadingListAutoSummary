@@ -87,7 +87,7 @@ export async function markAsReadAndNotify(
         // TODO: 抽出失敗をSlackに通知する処理を実装
       }
     } else {
-      console.log(
+      console.error(
         `Firecrawl API キーが未設定のため、本文抽出をスキップ: ${entry.title}`,
       );
     }
