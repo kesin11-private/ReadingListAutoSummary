@@ -29,6 +29,7 @@ function App() {
         openaiApiKey: loadedSettings.openaiApiKey || "",
         openaiModel: loadedSettings.openaiModel || "",
         slackWebhookUrl: loadedSettings.slackWebhookUrl || "",
+        firecrawlApiKey: loadedSettings.firecrawlApiKey || "",
       });
     } catch (error) {
       console.error("設定読み込みエラー:", error);
@@ -233,6 +234,36 @@ function App() {
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+        </section>
+
+        {/* Firecrawl設定 */}
+        <section class="bg-gray-50 p-4 rounded-lg">
+          <h2 class="text-lg font-semibold mb-4">Firecrawl設定</h2>
+
+          <div>
+            <label
+              for="firecrawlApiKey"
+              class="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Firecrawl API キー
+            </label>
+            <input
+              id="firecrawlApiKey"
+              type="password"
+              placeholder="fc-..."
+              value={settings.firecrawlApiKey}
+              onInput={(e) =>
+                handleInputChange(
+                  "firecrawlApiKey",
+                  (e.target as HTMLInputElement).value,
+                )
+              }
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+              Webページからのテキスト抽出に使用
+            </p>
           </div>
         </section>
 

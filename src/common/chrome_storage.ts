@@ -5,6 +5,7 @@ export interface Settings {
   openaiApiKey?: string;
   openaiModel?: string;
   slackWebhookUrl?: string;
+  firecrawlApiKey?: string;
 }
 
 // デフォルト設定
@@ -25,6 +26,7 @@ export async function getSettings(): Promise<Settings> {
       "openaiApiKey",
       "openaiModel",
       "slackWebhookUrl",
+      "firecrawlApiKey",
     ]);
 
     return {
@@ -35,6 +37,7 @@ export async function getSettings(): Promise<Settings> {
       openaiApiKey: result.openaiApiKey,
       openaiModel: result.openaiModel,
       slackWebhookUrl: result.slackWebhookUrl,
+      firecrawlApiKey: result.firecrawlApiKey,
     };
   } catch (error) {
     console.error("設定取得エラー:", error);
@@ -64,6 +67,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
     }
     if (settings.slackWebhookUrl) {
       settingsToSave.slackWebhookUrl = settings.slackWebhookUrl;
+    }
+    if (settings.firecrawlApiKey) {
+      settingsToSave.firecrawlApiKey = settings.firecrawlApiKey;
     }
 
     await chrome.storage.local.set(settingsToSave);
