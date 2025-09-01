@@ -198,7 +198,7 @@ describe("Message handling", () => {
       );
 
       // falseを返す（非同期処理なし）
-      expect(result).toBeUndefined();
+      expect(result).toBe(false);
 
       // sendResponse は呼ばれない
       expect(sendResponse).not.toHaveBeenCalled();
