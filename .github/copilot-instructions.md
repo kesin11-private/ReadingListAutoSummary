@@ -79,6 +79,7 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 ### AI-Specific Considerations
 - Use `pnpm check:ai` before commits (validates everything)
 - All external API integrations need retry logic with exponential backoff
+- **Commit messages must be in English** - Always write commit messages in English for consistency
 - Settings stored in `chrome.storage.local` with these keys:
   - Days until read (default: 30)
   - Days until delete (default: 60)  

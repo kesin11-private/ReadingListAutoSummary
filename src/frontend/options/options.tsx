@@ -8,6 +8,7 @@ import {
   saveSettings as saveSettingsToStorage,
   validateSettings,
 } from "../../common/chrome_storage";
+import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
 
@@ -266,6 +267,9 @@ function App() {
             </p>
           </div>
         </section>
+
+        {/* コンテンツ抽出テスト */}
+        <ContentExtractorTest />
 
         {/* Slack通知設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
