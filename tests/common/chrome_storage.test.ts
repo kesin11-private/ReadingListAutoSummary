@@ -101,6 +101,8 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        firecrawlApiKey: "fc-test123",
+        systemPrompt: "カスタムプロンプト",
       };
 
       await saveSettings(settings);
@@ -112,6 +114,8 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        firecrawlApiKey: "fc-test123",
+        systemPrompt: "カスタムプロンプト",
       });
     });
 
@@ -123,6 +127,8 @@ describe("chrome_storage", () => {
         openaiApiKey: "",
         openaiModel: "",
         slackWebhookUrl: "",
+        firecrawlApiKey: "",
+        systemPrompt: "",
       };
 
       await saveSettings(settings);

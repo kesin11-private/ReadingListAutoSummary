@@ -196,6 +196,80 @@ describe("summarizer", () => {
         stream: false,
       });
     });
+
+    it("systemPromptが未指定の場合にデフォルトプロンプトが使用される", async () => {
+      const mockResponse = {
+        choices: [
+          {
+            message: {
+              content: "デフォルト要約",
+            },
+          },
+        ],
+      };
+      mockCreate.mockResolvedValue(mockResponse);
+
+      await summarizeContent(
+        "テストタイトル",
+        "https://example.com",
+        "テストコンテンツ",
+        config,
+      );
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: expect.stringContaining(
+              "テキストから本文を抜き出し、日本語で要約してください",
+            ),
+          },
+          {
+            role: "user",
+            content: expect.stringContaining("テストタイトル"),
+          },
+        ],
+        stream: false,
+      });
+    });
+
+    it("カスタムsystemPromptが指定された場合に使用される", async () => {
+      const mockResponse = {
+        choices: [
+          {
+            message: {
+              content: "カスタム要約",
+            },
+          },
+        ],
+      };
+      mockCreate.mockResolvedValue(mockResponse);
+      const customPrompt = "カスタムプロンプトです";
+
+      await summarizeContent(
+        "テストタイトル",
+        "https://example.com",
+        "テストコンテンツ",
+        config,
+        customPrompt,
+      );
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: customPrompt,
+          },
+          {
+            role: "user",
+            content: expect.stringContaining("テストタイトル"),
+          },
+        ],
+        stream: false,
+      });
+    });
   });
 
   describe("formatSlackMessage", () => {

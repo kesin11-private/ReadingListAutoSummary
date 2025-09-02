@@ -113,7 +113,13 @@ async function handleSummarizeTestMessage(
       model: settings.openaiModel,
     };
 
-    return await summarizeContent(title, url, content, summarizerConfig);
+    return await summarizeContent(
+      title,
+      url,
+      content,
+      summarizerConfig,
+      settings.systemPrompt,
+    );
   } catch (error) {
     return {
       success: false,
@@ -239,8 +245,13 @@ async function processSummarization(
   content: string,
   settings: Settings,
 ): Promise<void> {
-  const { openaiEndpoint, openaiApiKey, openaiModel, slackWebhookUrl } =
-    settings;
+  const {
+    openaiEndpoint,
+    openaiApiKey,
+    openaiModel,
+    slackWebhookUrl,
+    systemPrompt,
+  } = settings;
 
   if (!openaiEndpoint || !openaiApiKey || !openaiModel || !slackWebhookUrl) {
     console.warn(
@@ -260,6 +271,7 @@ async function processSummarization(
     entry.url,
     content,
     summarizerConfig,
+    systemPrompt,
   );
 
   const slackMessage =

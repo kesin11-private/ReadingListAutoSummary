@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { DEFAULT_SYSTEM_PROMPT } from "../common/chrome_storage";
 
 /**
  * 要約結果の型定義
@@ -43,8 +44,10 @@ export async function summarizeContent(
   url: string,
   content: string,
   config: SummarizerConfig,
+  systemPrompt?: string,
 ): Promise<SummarizeResult> {
   const maxRetries = 3;
+  const actualSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     console.log(`要約開始 (試行 ${attempt}/${maxRetries}): ${title}`);
@@ -60,18 +63,7 @@ export async function summarizeContent(
         messages: [
           {
             role: "system",
-            content:
-              "テキストから本文を抜き出し、日本語で要約してください。\n" +
-              "要約は技術的な内容に焦点を当て、 **3文に分けて** 600文字程度にしてください。\n\n" +
-              "<format>\n\n" +
-              "{section1}\n\n" +
-              "{section2}\n\n" +
-              "{section3}\n" +
-              "</format>\n\n" +
-              "<example>\n\n" +
-              "macOSのコマンドラインツールが設定ファイルを~/Library/Application Supportに配置するのは不適切であり、ユーザーの期待やXDG Base Directory Specificationに反していると筆者は主張しています。\n\n" +
-              "多くのCLIツールやdotfileマネージャーも~/.configをデフォルトとしており、~/Library/Application SupportはGUIアプリケーションがユーザーに代わって設定を管理する場合にのみ適していると結論付けています。\n\n" +
-              "</example>",
+            content: actualSystemPrompt,
           },
           {
             role: "user",
