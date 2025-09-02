@@ -68,6 +68,7 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - **Frontend tests**: `tests/frontend/**/*.test.ts` (jsdom environment)  
 - **Backend tests**: `tests/backend/**/*.test.ts` (node environment)
 - **No watch mode**: Vitest watch disabled (`watch: false`) for AI compatibility
+- **Console mocking**: Do not mock console methods (`console.log`, `console.error`, etc.) in tests - they are not necessary to verify and should be left unmocked
 
 ### Code Quality Tools
 - **Biome**: Comprehensive linting/formatting with strict rules

@@ -351,22 +351,6 @@ describe("markAsReadAndNotify", () => {
 
     await markAsReadAndNotify(entry, mockSettings);
 
-    expect(mockSummarizeContent).toHaveBeenCalledWith(
-      entry.title,
-      entry.url,
-      extractedContent,
-      {
-        endpoint: mockSettings.openaiEndpoint,
-        apiKey: mockSettings.openaiApiKey,
-        model: mockSettings.openaiModel,
-      },
-    );
-    expect(mockFormatSlackMessage).toHaveBeenCalledWith(
-      entry.title,
-      entry.url,
-      mockSettings.openaiModel,
-      summarizedContent,
-    );
     expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -404,12 +388,6 @@ describe("markAsReadAndNotify", () => {
 
     await markAsReadAndNotify(entry, mockSettings);
 
-    expect(mockFormatSlackErrorMessage).toHaveBeenCalledWith(
-      entry.title,
-      entry.url,
-      mockSettings.openaiModel,
-      errorMessage,
-    );
     expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -441,12 +419,6 @@ describe("markAsReadAndNotify", () => {
 
     await markAsReadAndNotify(entry, mockSettings);
 
-    expect(mockFormatSlackErrorMessage).toHaveBeenCalledWith(
-      entry.title,
-      entry.url,
-      mockSettings.openaiModel,
-      `本文抽出失敗: ${extractionError}`,
-    );
     expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -18,12 +18,6 @@ vi.mock("openai", () => ({
   })),
 }));
 
-// globalのconsoleをモック
-const mockConsoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
-const mockConsoleError = vi
-  .spyOn(console, "error")
-  .mockImplementation(() => {});
-
 describe("summarizer", () => {
   const config: SummarizerConfig = {
     endpoint: "https://api.openai.com/v1",
@@ -61,15 +55,11 @@ describe("summarizer", () => {
         config,
       );
 
-      expect(result.success).toBe(true);
-      expect(result.summary).toBe("要約文1。\n要約文2。\n要約文3。");
-      expect(result.retryCount).toBe(1);
-      expect(mockConsoleLog).toHaveBeenCalledWith(
-        "要約開始 (試行 1/3): テストタイトル",
-      );
-      expect(mockConsoleLog).toHaveBeenCalledWith(
-        "要約生成成功 (試行 1): テストタイトル",
-      );
+      expect(result).toStrictEqual({
+        success: true,
+        summary: "要約文1。\n要約文2。\n要約文3。",
+        retryCount: 1,
+      });
     });
 
     it("空の要約結果の場合エラーを返す", async () => {
@@ -99,9 +89,11 @@ describe("summarizer", () => {
 
       const result = await resultPromise;
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("要約結果が空です");
-      expect(result.retryCount).toBe(3);
+      expect(result).toStrictEqual({
+        success: false,
+        error: "要約結果が空です",
+        retryCount: 3,
+      });
     });
 
     it("APIエラー時にリトライして最終的に失敗", async () => {
@@ -123,13 +115,12 @@ describe("summarizer", () => {
 
       const result = await resultPromise;
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("API Error");
-      expect(result.retryCount).toBe(3);
+      expect(result).toStrictEqual({
+        success: false,
+        error: "API Error",
+        retryCount: 3,
+      });
       expect(mockCreate).toHaveBeenCalledTimes(3);
-      expect(mockConsoleError).toHaveBeenCalledWith(
-        "要約生成失敗 (全3回試行): テストタイトル",
-      );
     });
 
     it("2回目のリトライで成功", async () => {
@@ -161,9 +152,11 @@ describe("summarizer", () => {
 
       const result = await resultPromise;
 
-      expect(result.success).toBe(true);
-      expect(result.summary).toBe("成功した要約文。");
-      expect(result.retryCount).toBe(2);
+      expect(result).toStrictEqual({
+        success: true,
+        summary: "成功した要約文。",
+        retryCount: 2,
+      });
       expect(mockCreate).toHaveBeenCalledTimes(2);
     });
 

@@ -1,8 +1,5 @@
 import { getSettings, type Settings } from "../common/chrome_storage";
-import type {
-  ExtractContentMessage,
-  SummarizeTestMessage,
-} from "../types/messages";
+import type { FrontendMessage } from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
 import {
   formatSlackErrorMessage,
@@ -21,7 +18,7 @@ function initializeMessageHandlers(): void {
   if (typeof chrome !== "undefined" && chrome.runtime) {
     chrome.runtime.onMessage.addListener(
       (
-        request: ExtractContentMessage | SummarizeTestMessage,
+        request: FrontendMessage,
         _sender: chrome.runtime.MessageSender,
         sendResponse: (
           response: ExtractContentResult | SummarizeResult,
@@ -206,6 +203,105 @@ async function postToSlack(webhookUrl: string, message: string): Promise<void> {
 }
 
 /**
+ * 本文抽出とSlack投稿を処理するヘルパー関数
+ */
+async function processContentExtraction(
+  entry: chrome.readingList.ReadingListEntry,
+  settings: Settings,
+): Promise<void> {
+  if (!settings.firecrawlApiKey) {
+    console.error(
+      `Firecrawl API キーが未設定のため、本文抽出をスキップ: ${entry.title}`,
+    );
+    return;
+  }
+
+  const extractResult = await extractContent(
+    entry.url,
+    settings.firecrawlApiKey,
+  );
+
+  if (!extractResult.success || !extractResult.content) {
+    console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
+    await notifyExtractionError(entry, settings, extractResult.error);
+    return;
+  }
+
+  console.log(`本文抽出成功: ${entry.title}`);
+  await processSummarization(entry, extractResult.content, settings);
+}
+
+/**
+ * 要約処理とSlack投稿を行うヘルパー関数
+ */
+async function processSummarization(
+  entry: chrome.readingList.ReadingListEntry,
+  content: string,
+  settings: Settings,
+): Promise<void> {
+  const { openaiEndpoint, openaiApiKey, openaiModel, slackWebhookUrl } =
+    settings;
+
+  if (!openaiEndpoint || !openaiApiKey || !openaiModel || !slackWebhookUrl) {
+    console.warn(
+      "OpenAI設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
+    );
+    return;
+  }
+
+  const summarizerConfig: SummarizerConfig = {
+    endpoint: openaiEndpoint,
+    apiKey: openaiApiKey,
+    model: openaiModel,
+  };
+
+  const summarizeResult = await summarizeContent(
+    entry.title,
+    entry.url,
+    content,
+    summarizerConfig,
+  );
+
+  const slackMessage =
+    summarizeResult.success && summarizeResult.summary
+      ? formatSlackMessage(
+          entry.title,
+          entry.url,
+          openaiModel,
+          summarizeResult.summary,
+        )
+      : formatSlackErrorMessage(
+          entry.title,
+          entry.url,
+          openaiModel,
+          summarizeResult.error || "不明なエラー",
+        );
+
+  await postToSlack(slackWebhookUrl, slackMessage);
+}
+
+/**
+ * 抽出エラーをSlackに通知するヘルパー関数
+ */
+async function notifyExtractionError(
+  entry: chrome.readingList.ReadingListEntry,
+  settings: Settings,
+  error?: string,
+): Promise<void> {
+  if (!settings.slackWebhookUrl || !settings.openaiModel) {
+    return;
+  }
+
+  const errorMessage = formatSlackErrorMessage(
+    entry.title,
+    entry.url,
+    settings.openaiModel,
+    `本文抽出失敗: ${error}`,
+  );
+  await postToSlack(settings.slackWebhookUrl, errorMessage);
+}
+
+/**
  * 未読エントリを既読化し、要約をSlackへ投稿
  */
 export async function markAsReadAndNotify(
@@ -224,77 +320,7 @@ export async function markAsReadAndNotify(
     console.log(`既読化完了: ${entry.title}`);
 
     // 本文抽出とSlack投稿処理
-    if (settings.firecrawlApiKey) {
-      const extractResult = await extractContent(
-        entry.url,
-        settings.firecrawlApiKey,
-      );
-
-      if (extractResult.success && extractResult.content) {
-        console.log(`本文抽出成功: ${entry.title}`);
-
-        // OpenAI設定があれば要約を生成してSlackに投稿
-        if (
-          settings.openaiEndpoint &&
-          settings.openaiApiKey &&
-          settings.openaiModel &&
-          settings.slackWebhookUrl
-        ) {
-          const summarizerConfig: SummarizerConfig = {
-            endpoint: settings.openaiEndpoint,
-            apiKey: settings.openaiApiKey,
-            model: settings.openaiModel,
-          };
-
-          const summarizeResult = await summarizeContent(
-            entry.title,
-            entry.url,
-            extractResult.content,
-            summarizerConfig,
-          );
-
-          let slackMessage: string;
-          if (summarizeResult.success && summarizeResult.summary) {
-            slackMessage = formatSlackMessage(
-              entry.title,
-              entry.url,
-              settings.openaiModel,
-              summarizeResult.summary,
-            );
-          } else {
-            slackMessage = formatSlackErrorMessage(
-              entry.title,
-              entry.url,
-              settings.openaiModel,
-              summarizeResult.error || "不明なエラー",
-            );
-          }
-
-          await postToSlack(settings.slackWebhookUrl, slackMessage);
-        } else {
-          console.log(
-            "OpenAI設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
-          );
-        }
-      } else {
-        console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
-
-        // 抽出失敗もSlackに通知（Slack設定があれば）
-        if (settings.slackWebhookUrl && settings.openaiModel) {
-          const errorMessage = formatSlackErrorMessage(
-            entry.title,
-            entry.url,
-            settings.openaiModel,
-            `本文抽出失敗: ${extractResult.error}`,
-          );
-          await postToSlack(settings.slackWebhookUrl, errorMessage);
-        }
-      }
-    } else {
-      console.error(
-        `Firecrawl API キーが未設定のため、本文抽出をスキップ: ${entry.title}`,
-      );
-    }
+    await processContentExtraction(entry, settings);
   } catch (error) {
     console.error(`既読化エラー: ${entry.title}`, error);
     throw error;

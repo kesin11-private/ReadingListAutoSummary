@@ -27,3 +27,8 @@ export interface SummarizeTestMessage extends BaseMessage {
   url: string;
   content: string;
 }
+
+/**
+ * Union type for all frontend messages
+ */
+export type FrontendMessage = ExtractContentMessage | SummarizeTestMessage;
