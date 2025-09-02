@@ -88,7 +88,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
     if (settings.firecrawlApiKey) {
       settingsToSave.firecrawlApiKey = settings.firecrawlApiKey;
     }
-    if (settings.systemPrompt) {
+    if (settings.systemPrompt !== undefined) {
       settingsToSave.systemPrompt = settings.systemPrompt;
     }
 

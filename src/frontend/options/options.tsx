@@ -32,7 +32,7 @@ function App() {
         openaiModel: loadedSettings.openaiModel || "",
         slackWebhookUrl: loadedSettings.slackWebhookUrl || "",
         firecrawlApiKey: loadedSettings.firecrawlApiKey || "",
-        systemPrompt: loadedSettings.systemPrompt || "",
+        systemPrompt: loadedSettings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
       });
     } catch (error) {
       console.error("設定読み込みエラー:", error);
@@ -274,7 +274,7 @@ function App() {
             <div class="mt-2 flex gap-2">
               <button
                 type="button"
-                onClick={() => handleResetToDefault()}
+                onClick={handleResetToDefault}
                 class="px-3 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
               >
                 デフォルトに戻す

@@ -1,4 +1,8 @@
-import { getSettings, type Settings } from "../common/chrome_storage";
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  getSettings,
+  type Settings,
+} from "../common/chrome_storage";
 import type { FrontendMessage } from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
 import {
@@ -118,7 +122,7 @@ async function handleSummarizeTestMessage(
       url,
       content,
       summarizerConfig,
-      settings.systemPrompt,
+      settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
     );
   } catch (error) {
     return {
@@ -271,7 +275,7 @@ async function processSummarization(
     entry.url,
     content,
     summarizerConfig,
-    systemPrompt,
+    systemPrompt || DEFAULT_SYSTEM_PROMPT,
   );
 
   const slackMessage =

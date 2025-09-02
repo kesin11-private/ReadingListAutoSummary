@@ -5,6 +5,7 @@ import {
   type SummarizerConfig,
   summarizeContent,
 } from "../../src/backend/summarizer";
+import { DEFAULT_SYSTEM_PROMPT } from "../../src/common/chrome_storage";
 
 // OpenAI SDKのモック
 const mockCreate = vi.fn();
@@ -53,6 +54,7 @@ describe("summarizer", () => {
         "https://example.com",
         "テストコンテンツ",
         config,
+        DEFAULT_SYSTEM_PROMPT,
       );
 
       expect(result).toStrictEqual({
@@ -79,6 +81,7 @@ describe("summarizer", () => {
         "https://example.com",
         "テストコンテンツ",
         config,
+        DEFAULT_SYSTEM_PROMPT,
       );
 
       // タイマーを進めてリトライを実行
@@ -105,6 +108,7 @@ describe("summarizer", () => {
         "https://example.com",
         "テストコンテンツ",
         config,
+        DEFAULT_SYSTEM_PROMPT,
       );
 
       // タイマーを進めてリトライを実行
@@ -144,6 +148,7 @@ describe("summarizer", () => {
         "https://example.com",
         "テストコンテンツ",
         config,
+        DEFAULT_SYSTEM_PROMPT,
       );
 
       // 1回目のリトライまでタイマーを進める
@@ -177,43 +182,7 @@ describe("summarizer", () => {
         "https://example.com",
         "テストコンテンツ",
         config,
-      );
-
-      expect(mockCreate).toHaveBeenCalledWith({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: expect.stringContaining(
-              "テキストから本文を抜き出し、日本語で要約してください",
-            ),
-          },
-          {
-            role: "user",
-            content: expect.stringContaining("テストタイトル"),
-          },
-        ],
-        stream: false,
-      });
-    });
-
-    it("systemPromptが未指定の場合にデフォルトプロンプトが使用される", async () => {
-      const mockResponse = {
-        choices: [
-          {
-            message: {
-              content: "デフォルト要約",
-            },
-          },
-        ],
-      };
-      mockCreate.mockResolvedValue(mockResponse);
-
-      await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
+        DEFAULT_SYSTEM_PROMPT,
       );
 
       expect(mockCreate).toHaveBeenCalledWith({

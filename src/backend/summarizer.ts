@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import { DEFAULT_SYSTEM_PROMPT } from "../common/chrome_storage";
 
 /**
  * 要約結果の型定義
@@ -44,10 +43,9 @@ export async function summarizeContent(
   url: string,
   content: string,
   config: SummarizerConfig,
-  systemPrompt?: string,
+  systemPrompt: string,
 ): Promise<SummarizeResult> {
   const maxRetries = 3;
-  const actualSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     console.log(`要約開始 (試行 ${attempt}/${maxRetries}): ${title}`);
@@ -63,7 +61,7 @@ export async function summarizeContent(
         messages: [
           {
             role: "system",
-            content: actualSystemPrompt,
+            content: systemPrompt,
           },
           {
             role: "user",
