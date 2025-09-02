@@ -68,6 +68,7 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - **Frontend tests**: `tests/frontend/**/*.test.ts` (jsdom environment)  
 - **Backend tests**: `tests/backend/**/*.test.ts` (node environment)
 - **No watch mode**: Vitest watch disabled (`watch: false`) for AI compatibility
+- **Console mocking**: Do not mock console methods (`console.log`, `console.error`, etc.) in tests - they are not necessary to verify and should be left unmocked
 
 ### Code Quality Tools
 - **Biome**: Comprehensive linting/formatting with strict rules
@@ -91,6 +92,11 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - Frontend code: `src/frontend/` (Options page; Preact entry at `src/frontend/options/options.tsx`)
 - Tests mirror source structure: `tests/{backend|frontend}/`
 - Build output: `dist/` with specialized structure for Chrome extension
+
+## Package Management
+- **Use pnpm**: Always use `pnpm` for package management, not npm or yarn
+- Install packages with `pnpm add <package>`
+- Install dev dependencies with `pnpm add -D <package>`
 
 ## External Dependencies (Not Yet Installed)
 Based on README.md, the following will be needed:

@@ -14,10 +14,26 @@ vi.mock("../../src/backend/content_extractor", () => ({
   extractContent: vi.fn(),
 }));
 
-// モックされた extractContent 関数を取得
+// summarizer モジュールのモック
+vi.mock("../../src/backend/summarizer", () => ({
+  summarizeContent: vi.fn(),
+  formatSlackMessage: vi.fn(),
+  formatSlackErrorMessage: vi.fn(),
+}));
+
+// global fetchのモック
+const mockFetch = vi.fn();
+globalThis.fetch = mockFetch;
+
+// モックされた関数を取得
 const { extractContent: mockExtractContent } = await import(
   "../../src/backend/content_extractor"
 );
+const {
+  summarizeContent: mockSummarizeContent,
+  formatSlackMessage: mockFormatSlackMessage,
+  formatSlackErrorMessage: mockFormatSlackErrorMessage,
+} = await import("../../src/backend/summarizer");
 
 // Chrome API のモック設定
 const mockChromeStorageLocal = {
@@ -276,8 +292,21 @@ describe("markAsReadAndNotify", () => {
       success: true,
       content: "# テスト記事\n\nテスト本文",
     });
+    // 要約機能は実行されないが、念のためモック設定
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約文",
+      retryCount: 1,
+    });
 
-    await markAsReadAndNotify(entry, mockSettings);
+    // OpenAI設定が不完全な設定で実行（要約はスキップされる）
+    const incompleteSettings = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+      firecrawlApiKey: "fc-test-key",
+    };
+
+    await markAsReadAndNotify(entry, incompleteSettings);
 
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
       url: entry.url,
@@ -285,8 +314,175 @@ describe("markAsReadAndNotify", () => {
     });
     expect(mockExtractContent).toHaveBeenCalledWith(
       entry.url,
-      mockSettings.firecrawlApiKey,
+      incompleteSettings.firecrawlApiKey,
     );
+    // 要約機能は呼ばれない
+    expect(mockSummarizeContent).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("本文抽出成功時に要約してSlackに投稿", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const extractedContent = "# テスト記事\n\nテスト本文";
+    const summarizedContent = "要約文1\n要約文2\n要約文3";
+    const slackMessage = "formatted slack message";
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: extractedContent,
+    });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: summarizedContent,
+      retryCount: 1,
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(slackMessage);
+    mockFetch.mockResolvedValue(
+      new Response(null, { status: 200, statusText: "OK" }),
+    );
+
+    await markAsReadAndNotify(entry, mockSettings);
+
+    expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: slackMessage }),
+    });
+  });
+
+  it("要約失敗時にエラーメッセージをSlackに投稿", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const extractedContent = "# テスト記事\n\nテスト本文";
+    const errorMessage = "API接続エラー";
+    const slackErrorMessage = "formatted error message";
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: extractedContent,
+    });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: false,
+      error: errorMessage,
+      retryCount: 3,
+    });
+    vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
+    mockFetch.mockResolvedValue(
+      new Response(null, { status: 200, statusText: "OK" }),
+    );
+
+    await markAsReadAndNotify(entry, mockSettings);
+
+    expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: slackErrorMessage }),
+    });
+  });
+
+  it("本文抽出失敗時にエラーメッセージをSlackに投稿", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const extractionError = "コンテンツ抽出に失敗";
+    const slackErrorMessage = "formatted extraction error message";
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: false,
+      error: extractionError,
+    });
+    vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
+    mockFetch.mockResolvedValue(
+      new Response(null, { status: 200, statusText: "OK" }),
+    );
+
+    await markAsReadAndNotify(entry, mockSettings);
+
+    expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: slackErrorMessage }),
+    });
+  });
+
+  it("OpenAI設定が不完全な場合は要約・Slack投稿をスキップ", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const incompleteSettings = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+      openaiEndpoint: "https://api.openai.com/v1",
+      // openaiApiKey が未設定
+      openaiModel: "gpt-4o-mini",
+      slackWebhookUrl: "https://hooks.slack.com/test",
+      firecrawlApiKey: "fc-test-key",
+    };
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: "# テスト記事\n\nテスト本文",
+    });
+
+    await markAsReadAndNotify(entry, incompleteSettings);
+
+    expect(mockSummarizeContent).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("Firecrawl API キーが未設定の場合は本文抽出をスキップ", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const settingsWithoutFirecrawl = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+      openaiEndpoint: "https://api.openai.com/v1",
+      openaiApiKey: "test-key",
+      openaiModel: "gpt-4o-mini",
+      slackWebhookUrl: "https://hooks.slack.com/test",
+      // firecrawlApiKey が未設定
+    };
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+
+    await markAsReadAndNotify(entry, settingsWithoutFirecrawl);
+
+    expect(mockExtractContent).not.toHaveBeenCalled();
+    expect(mockSummarizeContent).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("既読化APIエラー時に例外をスロー", async () => {
