@@ -1,5 +1,3 @@
-import FirecrawlApp from "@mendable/firecrawl-js";
-
 export interface ExtractContentResult {
   success: boolean;
   content?: string;
@@ -40,7 +38,7 @@ async function retryWithExponentialBackoff<T>(
 }
 
 /**
- * Firecrawl SDKを使用してURLから本文を抽出
+ * Firecrawl APIを使用してURLから本文を抽出
  * 失敗時は指数バックオフで最大3回までリトライ
  */
 export async function extractContent(
@@ -59,21 +57,38 @@ export async function extractContent(
   console.log(`本文抽出開始: ${url}`);
 
   try {
-    const app = new FirecrawlApp({ apiKey });
-
     const result = await retryWithExponentialBackoff(async () => {
       console.log(`Firecrawl API呼び出し: ${url}`);
-      const response = await app.scrapeUrl(url, {
-        formats: ["markdown"],
-        onlyMainContent: true,
+
+      const response = await fetch("https://api.firecrawl.dev/v0/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          pageOptions: {
+            onlyMainContent: true,
+            formats: ["markdown"],
+          },
+        }),
       });
 
+      if (!response.ok) {
+        throw new Error(
+          `Firecrawl API error: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const data = await response.json();
+
       // エラーレスポンスの場合
-      if (!response || !("markdown" in response) || !response.markdown) {
+      if (!data || !data.data || !data.data.markdown) {
         throw new Error("抽出された本文が空です");
       }
 
-      return response.markdown;
+      return data.data.markdown;
     });
 
     console.log(`本文抽出成功: ${url} (文字数: ${result.length})`);

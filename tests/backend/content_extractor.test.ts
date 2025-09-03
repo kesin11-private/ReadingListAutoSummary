@@ -1,16 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Firecrawl SDK のモック
-const mockScrapeUrl = vi.fn();
+// fetch APIのモック
+const mockFetch = vi.fn();
 
-// Firecrawl モジュールのモック
-vi.mock("@mendable/firecrawl-js", () => {
-  return {
-    default: class MockFirecrawlApp {
-      scrapeUrl = mockScrapeUrl;
-    },
-  };
-});
+// グローバルfetchをモック
+vi.stubGlobal("fetch", mockFetch);
 
 // 動的インポートでテスト対象モジュールを読み込み
 const { extractContent } = await import("../../src/backend/content_extractor");
@@ -33,14 +27,19 @@ describe("extractContent", () => {
       success: false,
       error: "Firecrawl API キーが設定されていません",
     });
-    // APIキーが空の場合はFirecrawl SDKが呼ばれないことを確認
-    expect(mockScrapeUrl).not.toHaveBeenCalled();
+    // APIキーが空の場合はfetchが呼ばれないことを確認
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("正常な本文抽出が成功する", async () => {
     const mockContent = "# テスト記事\n\nこれはテスト記事の内容です。";
-    mockScrapeUrl.mockResolvedValue({
-      markdown: mockContent,
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          markdown: mockContent,
+        },
+      }),
     });
 
     const result = await extractContent("https://example.com", "fc-test-key");
@@ -49,15 +48,33 @@ describe("extractContent", () => {
       success: true,
       content: mockContent,
     });
-    expect(mockScrapeUrl).toHaveBeenCalledWith("https://example.com", {
-      formats: ["markdown"],
-      onlyMainContent: true,
-    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.firecrawl.dev/v0/scrape",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer fc-test-key",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: "https://example.com",
+          pageOptions: {
+            onlyMainContent: true,
+            formats: ["markdown"],
+          },
+        }),
+      },
+    );
   });
 
   it("抽出された本文が空の場合、エラーを返す", async () => {
-    mockScrapeUrl.mockResolvedValue({
-      markdown: "",
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          markdown: "",
+        },
+      }),
     });
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
@@ -72,7 +89,12 @@ describe("extractContent", () => {
   });
 
   it("markdownフィールドが存在しない場合、エラーを返す", async () => {
-    mockScrapeUrl.mockResolvedValue({});
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {},
+      }),
+    });
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
 
@@ -87,10 +109,15 @@ describe("extractContent", () => {
 
   it("APIエラー時に1回目で失敗したら2回目で成功する", async () => {
     const mockContent = "# 回復成功\n\n最終的に成功した内容";
-    mockScrapeUrl
+    mockFetch
       .mockRejectedValueOnce(new Error("API timeout"))
       .mockResolvedValueOnce({
-        markdown: mockContent,
+        ok: true,
+        json: async () => ({
+          data: {
+            markdown: mockContent,
+          },
+        }),
       });
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
@@ -104,12 +131,12 @@ describe("extractContent", () => {
       success: true,
       content: mockContent,
     });
-    expect(mockScrapeUrl).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it("3回連続で失敗した場合、最終的にエラーを返す", async () => {
     const apiError = new Error("Persistent API error");
-    mockScrapeUrl
+    mockFetch
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError);
@@ -125,13 +152,13 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("Persistent API error");
-    expect(mockScrapeUrl).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
   it("リトライ間に適切な遅延が発生する", async () => {
     // vitestのタイマーモックを使用
     const apiError = new Error("Network error");
-    mockScrapeUrl
+    mockFetch
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError)
       .mockRejectedValueOnce(apiError);
@@ -148,7 +175,7 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("Network error");
-    expect(mockScrapeUrl).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
   it("空白文字のみのAPIキーでエラーを返す", async () => {
@@ -161,7 +188,7 @@ describe("extractContent", () => {
   });
 
   it("非Error型の例外もハンドリングする", async () => {
-    mockScrapeUrl.mockRejectedValue("文字列エラー");
+    mockFetch.mockRejectedValue("文字列エラー");
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
 
@@ -172,5 +199,23 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("文字列エラー");
+  });
+
+  it("HTTPエラーレスポンスの場合、エラーを返す", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+    });
+
+    const extractPromise = extractContent("https://example.com", "fc-test-key");
+
+    // リトライの遅延をスキップ (1000ms + 2000ms)
+    await vi.advanceTimersByTimeAsync(3000);
+
+    const result = await extractPromise;
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Firecrawl API error: 401 Unauthorized");
   });
 });

@@ -32,7 +32,6 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@mendable/firecrawl-js": "^1.21.1",
     "openai": "^5.16.0",
     "preact": "^10.27.1"
   }
