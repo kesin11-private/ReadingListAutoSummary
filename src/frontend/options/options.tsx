@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import "../styles/tailwind.css";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_SYSTEM_PROMPT,
   getSettings,
   type Settings,
   saveSettings as saveSettingsToStorage,
@@ -31,6 +32,7 @@ function App() {
         openaiModel: loadedSettings.openaiModel || "",
         slackWebhookUrl: loadedSettings.slackWebhookUrl || "",
         firecrawlApiKey: loadedSettings.firecrawlApiKey || "",
+        systemPrompt: loadedSettings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
       });
     } catch (error) {
       console.error("設定読み込みエラー:", error);
@@ -84,6 +86,13 @@ function App() {
     setSettings((prev) => ({
       ...prev,
       [field]: value,
+    }));
+  };
+
+  const handleResetToDefault = () => {
+    setSettings((prev) => ({
+      ...prev,
+      systemPrompt: DEFAULT_SYSTEM_PROMPT,
     }));
   };
 
@@ -235,6 +244,45 @@ function App() {
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+        </section>
+
+        {/* 要約設定 */}
+        <section class="bg-gray-50 p-4 rounded-lg">
+          <h2 class="text-lg font-semibold mb-4">要約設定</h2>
+
+          <div>
+            <label
+              for="systemPrompt"
+              class="block text-sm font-medium text-gray-700 mb-2"
+            >
+              システムプロンプト
+            </label>
+            <textarea
+              id="systemPrompt"
+              rows={8}
+              placeholder="LLMへの要約指示を記述..."
+              value={settings.systemPrompt || ""}
+              onInput={(e) =>
+                handleInputChange(
+                  "systemPrompt",
+                  (e.target as HTMLTextAreaElement).value,
+                )
+              }
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div class="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={handleResetToDefault}
+                class="px-3 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+              >
+                デフォルトに戻す
+              </button>
+            </div>
+            <p class="text-xs text-gray-600 mt-2">
+              💡 プロンプトを変更すると要約のスタイル・内容が変わります
+            </p>
           </div>
         </section>
 

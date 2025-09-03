@@ -75,6 +75,7 @@ describe("getSettings", () => {
       openaiModel: undefined,
       slackWebhookUrl: undefined,
       firecrawlApiKey: undefined,
+      systemPrompt: undefined,
     });
     expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
       "daysUntilRead",
@@ -84,6 +85,7 @@ describe("getSettings", () => {
       "openaiModel",
       "slackWebhookUrl",
       "firecrawlApiKey",
+      "systemPrompt",
     ]);
   });
 
@@ -96,6 +98,7 @@ describe("getSettings", () => {
       openaiModel: "gpt-3.5-turbo",
       slackWebhookUrl: "https://hooks.slack.com/test",
       firecrawlApiKey: "fc-test-key",
+      systemPrompt: "カスタムプロンプト",
     };
     mockChromeStorageLocal.get.mockResolvedValue(storedSettings);
 

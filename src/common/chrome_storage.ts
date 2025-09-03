@@ -6,7 +6,22 @@ export interface Settings {
   openaiModel?: string;
   slackWebhookUrl?: string;
   firecrawlApiKey?: string;
+  systemPrompt?: string;
 }
+
+// デフォルトのシステムプロンプト
+export const DEFAULT_SYSTEM_PROMPT =
+  "テキストから本文を抜き出し、日本語で要約してください。\n" +
+  "要約は技術的な内容に焦点を当て、 **3文に分けて** 600文字程度にしてください。\n\n" +
+  "<format>\n\n" +
+  "{section1}\n\n" +
+  "{section2}\n\n" +
+  "{section3}\n" +
+  "</format>\n\n" +
+  "<example>\n\n" +
+  "macOSのコマンドラインツールが設定ファイルを~/Library/Application Supportに配置するのは不適切であり、ユーザーの期待やXDG Base Directory Specificationに反していると筆者は主張しています。\n\n" +
+  "多くのCLIツールやdotfileマネージャーも~/.configをデフォルトとしており、~/Library/Application SupportはGUIアプリケーションがユーザーに代わって設定を管理する場合にのみ適していると結論付けています。\n\n" +
+  "</example>";
 
 // デフォルト設定
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +42,7 @@ export async function getSettings(): Promise<Settings> {
       "openaiModel",
       "slackWebhookUrl",
       "firecrawlApiKey",
+      "systemPrompt",
     ]);
 
     return {
@@ -38,6 +54,7 @@ export async function getSettings(): Promise<Settings> {
       openaiModel: result.openaiModel,
       slackWebhookUrl: result.slackWebhookUrl,
       firecrawlApiKey: result.firecrawlApiKey,
+      systemPrompt: result.systemPrompt,
     };
   } catch (error) {
     console.error("設定取得エラー:", error);
@@ -70,6 +87,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
     }
     if (settings.firecrawlApiKey) {
       settingsToSave.firecrawlApiKey = settings.firecrawlApiKey;
+    }
+    if (settings.systemPrompt !== undefined) {
+      settingsToSave.systemPrompt = settings.systemPrompt;
     }
 
     await chrome.storage.local.set(settingsToSave);
