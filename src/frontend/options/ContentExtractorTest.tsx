@@ -3,9 +3,9 @@ import type { ExtractContentResult } from "../../backend/content_extractor";
 import type { SummarizeResult } from "../../backend/summarizer";
 import type {
   ExtractContentMessage,
-  SummarizeTestMessage,
   SlackTestMessage,
   SlackTestResult,
+  SummarizeTestMessage,
 } from "../../types/messages";
 
 /**
@@ -72,41 +72,42 @@ export function ContentExtractorTest() {
 
     try {
       // Slack設定の確認
-      const settings = await chrome.storage.local.get(['slackWebhookUrl']);
+      const settings = await chrome.storage.local.get(["slackWebhookUrl"]);
       if (!settings.slackWebhookUrl) {
         setSlackResult({
           success: false,
-          error: 'Slack Webhook URLが設定されていません。設定画面で設定してください。'
+          error:
+            "Slack Webhook URLが設定されていません。設定画面で設定してください。",
         });
         return;
       }
 
       // 要約結果をSlackメッセージ形式に変換
       const title = new URL(url.trim()).hostname;
-      const modelName = "テスト用モデル"; // または実際の設定から取得
-      
+      const modelName = summarizeResult.modelName || "Unknown Model";
+
       const message: SlackTestMessage = {
         type: "SLACK_TEST",
         title,
         url: url.trim(),
         modelName,
-        summary: summarizeResult.summary
+        summary: summarizeResult.summary,
       };
 
       const response = await chrome.runtime.sendMessage(message);
-      
+
       if (isSlackTestResult(response)) {
         setSlackResult(response);
       } else {
         setSlackResult({
           success: false,
-          error: "不正なレスポンス形式です"
+          error: "不正なレスポンス形式です",
         });
       }
     } catch (error) {
       setSlackResult({
         success: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
     } finally {
       setIsSlackPosting(false);
@@ -287,16 +288,19 @@ export function ContentExtractorTest() {
 
         {slackResult && (
           <div class="mt-4">
-            <h4 class="text-sm font-medium text-gray-700 mb-2">Slack投稿結果:</h4>
-            <div class={`p-3 rounded-md text-sm ${
-              slackResult.success 
-                ? 'bg-green-50 border border-green-200 text-green-800'
-                : 'bg-red-50 border border-red-200 text-red-800'
-            }`}>
-              {slackResult.success 
-                ? '✓ Slackへの投稿が完了しました！'
-                : `✗ 投稿エラー: ${slackResult.error}`
-              }
+            <h4 class="text-sm font-medium text-gray-700 mb-2">
+              Slack投稿結果:
+            </h4>
+            <div
+              class={`p-3 rounded-md text-sm ${
+                slackResult.success
+                  ? "bg-green-50 border border-green-200 text-green-800"
+                  : "bg-red-50 border border-red-200 text-red-800"
+              }`}
+            >
+              {slackResult.success
+                ? "✓ Slackへの投稿が完了しました！"
+                : `✗ 投稿エラー: ${slackResult.error}`}
             </div>
           </div>
         )}

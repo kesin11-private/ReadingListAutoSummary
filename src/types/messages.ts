@@ -50,4 +50,7 @@ export interface SlackTestResult {
 /**
  * Union type for all frontend messages
  */
-export type FrontendMessage = ExtractContentMessage | SummarizeTestMessage | SlackTestMessage;
+export type FrontendMessage =
+  | ExtractContentMessage
+  | SummarizeTestMessage
+  | SlackTestMessage;

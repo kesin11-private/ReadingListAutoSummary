@@ -165,13 +165,14 @@ async function handleSlackTestMessage(
     if (!settings.slackWebhookUrl) {
       return {
         success: false,
-        error: "Slack Webhook URLが設定されていません。設定を保存してからお試しください。",
+        error:
+          "Slack Webhook URLが設定されていません。設定を保存してからお試しください。",
       };
     }
 
     const slackMessage = formatSlackMessage(title, url, modelName, summary);
     await postToSlack(settings.slackWebhookUrl, slackMessage);
-    
+
     return { success: true };
   } catch (error) {
     return {
