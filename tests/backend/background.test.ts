@@ -14,6 +14,11 @@ vi.mock("../../src/backend/content_extractor", () => ({
   extractContent: vi.fn(),
 }));
 
+// post モジュールのモック
+vi.mock("../../src/backend/post", () => ({
+  postToSlack: vi.fn(),
+}));
+
 // summarizer モジュールのモック
 vi.mock("../../src/backend/summarizer", () => ({
   summarizeContent: vi.fn(),
@@ -21,14 +26,11 @@ vi.mock("../../src/backend/summarizer", () => ({
   formatSlackErrorMessage: vi.fn(),
 }));
 
-// global fetchのモック
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
-
 // モックされた関数を取得
 const { extractContent: mockExtractContent } = await import(
   "../../src/backend/content_extractor"
 );
+const { postToSlack: mockPostToSlack } = await import("../../src/backend/post");
 const {
   summarizeContent: mockSummarizeContent,
   formatSlackMessage: mockFormatSlackMessage,
@@ -321,7 +323,7 @@ describe("markAsReadAndNotify", () => {
     );
     // 要約機能は呼ばれない
     expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockPostToSlack).not.toHaveBeenCalled();
   });
 
   it("本文抽出成功時に要約してSlackに投稿", async () => {
@@ -348,17 +350,14 @@ describe("markAsReadAndNotify", () => {
       retryCount: 1,
     });
     vi.mocked(mockFormatSlackMessage).mockReturnValue(slackMessage);
-    mockFetch.mockResolvedValue(
-      new Response(null, { status: 200, statusText: "OK" }),
-    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
 
     await markAsReadAndNotify(entry, mockSettings);
 
-    expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: slackMessage }),
-    });
+    expect(mockPostToSlack).toHaveBeenCalledWith(
+      mockSettings.slackWebhookUrl,
+      slackMessage,
+    );
   });
 
   it("要約失敗時にエラーメッセージをSlackに投稿", async () => {
@@ -385,17 +384,14 @@ describe("markAsReadAndNotify", () => {
       retryCount: 3,
     });
     vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
-    mockFetch.mockResolvedValue(
-      new Response(null, { status: 200, statusText: "OK" }),
-    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
 
     await markAsReadAndNotify(entry, mockSettings);
 
-    expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: slackErrorMessage }),
-    });
+    expect(mockPostToSlack).toHaveBeenCalledWith(
+      mockSettings.slackWebhookUrl,
+      slackErrorMessage,
+    );
   });
 
   it("本文抽出失敗時にエラーメッセージをSlackに投稿", async () => {
@@ -416,17 +412,14 @@ describe("markAsReadAndNotify", () => {
       error: extractionError,
     });
     vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
-    mockFetch.mockResolvedValue(
-      new Response(null, { status: 200, statusText: "OK" }),
-    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
 
     await markAsReadAndNotify(entry, mockSettings);
 
-    expect(mockFetch).toHaveBeenCalledWith(mockSettings.slackWebhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: slackErrorMessage }),
-    });
+    expect(mockPostToSlack).toHaveBeenCalledWith(
+      mockSettings.slackWebhookUrl,
+      slackErrorMessage,
+    );
   });
 
   it("OpenAI設定が不完全な場合は要約・Slack投稿をスキップ", async () => {
@@ -457,7 +450,7 @@ describe("markAsReadAndNotify", () => {
     await markAsReadAndNotify(entry, incompleteSettings);
 
     expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockPostToSlack).not.toHaveBeenCalled();
   });
 
   it("Firecrawl API キーが未設定の場合は本文抽出をスキップ", async () => {
@@ -485,7 +478,7 @@ describe("markAsReadAndNotify", () => {
 
     expect(mockExtractContent).not.toHaveBeenCalled();
     expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockPostToSlack).not.toHaveBeenCalled();
   });
 
   it("既読化APIエラー時に例外をスロー", async () => {

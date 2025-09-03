@@ -5,6 +5,7 @@ import {
 } from "../common/chrome_storage";
 import type { FrontendMessage } from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
+import { postToSlack } from "./post";
 import {
   formatSlackErrorMessage,
   formatSlackMessage,
@@ -184,32 +185,6 @@ export function shouldDelete(
   const daysSinceUpdate = (now - entry.lastUpdateTime) / (1000 * 60 * 60 * 24);
 
   return daysSinceUpdate >= daysUntilDelete;
-}
-
-/**
- * Slackに投稿する
- */
-async function postToSlack(webhookUrl: string, message: string): Promise<void> {
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: message,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    console.log("Slack投稿成功");
-  } catch (error) {
-    console.error("Slack投稿失敗:", error);
-    throw error;
-  }
 }
 
 /**
