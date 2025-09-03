@@ -5,6 +5,26 @@ export interface ExtractContentResult {
   error?: string;
 }
 
+interface FirecrawlV2Metadata {
+  title?: string;
+  description?: string;
+  language?: string;
+  sourceURL?: string;
+  statusCode?: number;
+  error?: string;
+}
+
+interface FirecrawlV2Data {
+  markdown?: string;
+  metadata?: FirecrawlV2Metadata;
+}
+
+interface FirecrawlV2Response {
+  success: boolean;
+  data?: FirecrawlV2Data;
+  warning?: string;
+}
+
 /**
  * 指数バックオフでリトライを実行する汎用関数
  */
@@ -61,7 +81,7 @@ export async function extractContent(
     const result = await retryWithExponentialBackoff(async () => {
       console.log(`Firecrawl API呼び出し: ${url}`);
 
-      const response = await fetch("https://api.firecrawl.dev/v0/scrape", {
+      const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -69,10 +89,8 @@ export async function extractContent(
         },
         body: JSON.stringify({
           url,
-          pageOptions: {
-            onlyMainContent: true,
-            formats: ["markdown"],
-          },
+          formats: ["markdown"],
+          onlyMainContent: true,
         }),
       });
 
@@ -82,16 +100,16 @@ export async function extractContent(
         );
       }
 
-      const data = await response.json();
+      const apiResponse: FirecrawlV2Response = await response.json();
 
       // エラーレスポンスの場合
-      if (!data || !data.data || !data.data.markdown) {
+      if (!apiResponse || !apiResponse.data || !apiResponse.data.markdown) {
         throw new Error("抽出された本文が空です");
       }
 
       return {
-        content: data.data.markdown,
-        title: data.data.metadata?.title || new URL(url).hostname,
+        content: apiResponse.data.markdown,
+        title: apiResponse.data.metadata?.title || new URL(url).hostname,
       };
     });
 

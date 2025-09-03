@@ -37,6 +37,7 @@ describe("extractContent", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
+        success: true,
         data: {
           markdown: mockContent,
           metadata: { title: mockTitle },
@@ -52,7 +53,7 @@ describe("extractContent", () => {
       title: mockTitle,
     });
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.firecrawl.dev/v0/scrape",
+      "https://api.firecrawl.dev/v2/scrape",
       {
         method: "POST",
         headers: {
@@ -61,10 +62,8 @@ describe("extractContent", () => {
         },
         body: JSON.stringify({
           url: "https://example.com",
-          pageOptions: {
-            onlyMainContent: true,
-            formats: ["markdown"],
-          },
+          formats: ["markdown"],
+          onlyMainContent: true,
         }),
       },
     );
@@ -74,6 +73,7 @@ describe("extractContent", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
+        success: true,
         data: {
           markdown: "",
         },
@@ -95,6 +95,7 @@ describe("extractContent", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
+        success: true,
         data: {},
       }),
     });
@@ -118,6 +119,7 @@ describe("extractContent", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
+          success: true,
           data: {
             markdown: mockContent,
             metadata: { title: mockTitle },
@@ -230,6 +232,7 @@ describe("extractContent", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
+        success: true,
         data: {
           markdown: mockContent,
           metadata: {},
