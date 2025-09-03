@@ -8,5 +8,8 @@
     "service_worker": "src/backend/background.js",
     "type": "module"
   },
-  "permissions": ["storage", "readingList", "alarms"]
+  "permissions": ["storage", "readingList", "alarms"],
+  "host_permissions": [
+    "https://hooks.slack.com/*"
+  ]
 }

@@ -57,6 +57,23 @@ function initializeMessageHandlers(): void {
           return true; // Will respond asynchronously
         }
 
+        if (request.type === "SLACK_TEST") {
+          handleSlackTestMessage(
+            request.title,
+            request.url,
+            request.modelName,
+            request.summary,
+          )
+            .then(sendResponse)
+            .catch((error: unknown) => {
+              sendResponse({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+          return true; // Will respond asynchronously
+        }
+
         return false;
       },
     );
@@ -125,6 +142,37 @@ async function handleSummarizeTestMessage(
       summarizerConfig,
       settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
     );
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Slack投稿テストメッセージハンドラー
+ */
+async function handleSlackTestMessage(
+  title: string,
+  url: string,
+  modelName: string,
+  summary: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+
+    if (!settings.slackWebhookUrl) {
+      return {
+        success: false,
+        error: "Slack Webhook URLが設定されていません。設定を保存してからお試しください。",
+      };
+    }
+
+    const slackMessage = formatSlackMessage(title, url, modelName, summary);
+    await postToSlack(settings.slackWebhookUrl, slackMessage);
+    
+    return { success: true };
   } catch (error) {
     return {
       success: false,

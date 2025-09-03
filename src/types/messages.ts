@@ -29,6 +29,25 @@ export interface SummarizeTestMessage extends BaseMessage {
 }
 
 /**
+ * Message for Slack posting test requests
+ */
+export interface SlackTestMessage extends BaseMessage {
+  type: "SLACK_TEST";
+  title: string;
+  url: string;
+  modelName: string;
+  summary: string;
+}
+
+/**
+ * Result for Slack posting test
+ */
+export interface SlackTestResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
  * Union type for all frontend messages
  */
-export type FrontendMessage = ExtractContentMessage | SummarizeTestMessage;
+export type FrontendMessage = ExtractContentMessage | SummarizeTestMessage | SlackTestMessage;
