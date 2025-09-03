@@ -5,6 +5,7 @@ import {
 } from "../common/chrome_storage";
 import type { FrontendMessage } from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
+import { postToSlack } from "./post";
 import {
   formatSlackErrorMessage,
   formatSlackMessage,
@@ -45,6 +46,23 @@ function initializeMessageHandlers(): void {
             request.title,
             request.url,
             request.content,
+          )
+            .then(sendResponse)
+            .catch((error: unknown) => {
+              sendResponse({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+          return true; // Will respond asynchronously
+        }
+
+        if (request.type === "SLACK_TEST") {
+          handleSlackTestMessage(
+            request.title,
+            request.url,
+            request.modelName,
+            request.summary,
           )
             .then(sendResponse)
             .catch((error: unknown) => {
@@ -132,6 +150,38 @@ async function handleSummarizeTestMessage(
   }
 }
 
+/**
+ * Slack投稿テストメッセージハンドラー
+ */
+async function handleSlackTestMessage(
+  title: string,
+  url: string,
+  modelName: string,
+  summary: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const settings = await getSettings();
+
+    if (!settings.slackWebhookUrl) {
+      return {
+        success: false,
+        error:
+          "Slack Webhook URLが設定されていません。設定を保存してからお試しください。",
+      };
+    }
+
+    const slackMessage = formatSlackMessage(title, url, modelName, summary);
+    await postToSlack(settings.slackWebhookUrl, slackMessage);
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 // Initialize message handlers
 initializeMessageHandlers();
 
@@ -184,32 +234,6 @@ export function shouldDelete(
   const daysSinceUpdate = (now - entry.lastUpdateTime) / (1000 * 60 * 60 * 24);
 
   return daysSinceUpdate >= daysUntilDelete;
-}
-
-/**
- * Slackに投稿する
- */
-async function postToSlack(webhookUrl: string, message: string): Promise<void> {
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: message,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    console.log("Slack投稿成功");
-  } catch (error) {
-    console.error("Slack投稿失敗:", error);
-    throw error;
-  }
 }
 
 /**

@@ -3,6 +3,8 @@ import type { ExtractContentResult } from "../../backend/content_extractor";
 import type { SummarizeResult } from "../../backend/summarizer";
 import type {
   ExtractContentMessage,
+  SlackTestMessage,
+  SlackTestResult,
   SummarizeTestMessage,
 } from "../../types/messages";
 
@@ -38,12 +40,79 @@ function isSummarizeResult(obj: unknown): obj is SummarizeResult {
   );
 }
 
+/**
+ * Type guard to validate SlackTestResult
+ */
+function isSlackTestResult(obj: unknown): obj is SlackTestResult {
+  if (typeof obj !== "object" || obj === null) {
+    return false;
+  }
+
+  const result = obj as Record<string, unknown>;
+  return (
+    typeof result.success === "boolean" &&
+    (result.success === true || typeof result.error === "string")
+  );
+}
+
 export function ContentExtractorTest() {
   const [url, setUrl] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<ExtractContentResult | null>(null);
   const [summarizeResult, setSummarizeResult] =
     useState<SummarizeResult | null>(null);
+  const [isSlackPosting, setIsSlackPosting] = useState(false);
+  const [slackResult, setSlackResult] = useState<SlackTestResult | null>(null);
+
+  const handleSlackTest = async () => {
+    if (!summarizeResult?.success || !summarizeResult.summary) return;
+
+    setIsSlackPosting(true);
+    setSlackResult(null);
+
+    try {
+      // Slack設定の確認
+      const settings = await chrome.storage.local.get(["slackWebhookUrl"]);
+      if (!settings.slackWebhookUrl) {
+        setSlackResult({
+          success: false,
+          error:
+            "Slack Webhook URLが設定されていません。設定画面で設定してください。",
+        });
+        return;
+      }
+
+      // 要約結果をSlackメッセージ形式に変換
+      const title = result?.title || new URL(url.trim()).hostname;
+      const modelName = summarizeResult.modelName || "Unknown Model";
+
+      const message: SlackTestMessage = {
+        type: "SLACK_TEST",
+        title,
+        url: url.trim(),
+        modelName,
+        summary: summarizeResult.summary,
+      };
+
+      const response = await chrome.runtime.sendMessage(message);
+
+      if (isSlackTestResult(response)) {
+        setSlackResult(response);
+      } else {
+        setSlackResult({
+          success: false,
+          error: "不正なレスポンス形式です",
+        });
+      }
+    } catch (error) {
+      setSlackResult({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsSlackPosting(false);
+    }
+  };
 
   const handleExtractAndSummarize = async () => {
     if (!url.trim()) {
@@ -57,6 +126,7 @@ export function ContentExtractorTest() {
     setIsProcessing(true);
     setResult(null);
     setSummarizeResult(null);
+    setSlackResult(null);
 
     try {
       // Step 1: Extract content
@@ -195,6 +265,16 @@ export function ContentExtractorTest() {
                     {summarizeResult.summary}
                   </pre>
                 </div>
+                <div class="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleSlackTest}
+                    disabled={isSlackPosting}
+                    class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSlackPosting ? "投稿中..." : "Slackへの投稿テスト"}
+                  </button>
+                </div>
               </div>
             ) : (
               <div class="text-sm text-red-600 font-medium">
@@ -203,6 +283,25 @@ export function ContentExtractorTest() {
                   ` (試行回数: ${summarizeResult.retryCount})`}
               </div>
             )}
+          </div>
+        )}
+
+        {slackResult && (
+          <div class="mt-4">
+            <h4 class="text-sm font-medium text-gray-700 mb-2">
+              Slack投稿結果:
+            </h4>
+            <div
+              class={`p-3 rounded-md text-sm ${
+                slackResult.success
+                  ? "bg-green-50 border border-green-200 text-green-800"
+                  : "bg-red-50 border border-red-200 text-red-800"
+              }`}
+            >
+              {slackResult.success
+                ? "✓ Slackへの投稿が完了しました！"
+                : `✗ 投稿エラー: ${slackResult.error}`}
+            </div>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 export interface ExtractContentResult {
   success: boolean;
   content?: string;
+  title?: string;
   error?: string;
 }
 
@@ -88,13 +89,17 @@ export async function extractContent(
         throw new Error("抽出された本文が空です");
       }
 
-      return data.data.markdown;
+      return {
+        content: data.data.markdown,
+        title: data.data.metadata?.title || new URL(url).hostname,
+      };
     });
 
-    console.log(`本文抽出成功: ${url} (文字数: ${result.length})`);
+    console.log(`本文抽出成功: ${url} (文字数: ${result.content.length})`);
     return {
       success: true,
-      content: result,
+      content: result.content,
+      title: result.title,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

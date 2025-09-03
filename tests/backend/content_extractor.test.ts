@@ -33,11 +33,13 @@ describe("extractContent", () => {
 
   it("正常な本文抽出が成功する", async () => {
     const mockContent = "# テスト記事\n\nこれはテスト記事の内容です。";
+    const mockTitle = "テスト記事";
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
         data: {
           markdown: mockContent,
+          metadata: { title: mockTitle },
         },
       }),
     });
@@ -47,6 +49,7 @@ describe("extractContent", () => {
     expect(result).toEqual({
       success: true,
       content: mockContent,
+      title: mockTitle,
     });
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.firecrawl.dev/v0/scrape",
@@ -109,6 +112,7 @@ describe("extractContent", () => {
 
   it("APIエラー時に1回目で失敗したら2回目で成功する", async () => {
     const mockContent = "# 回復成功\n\n最終的に成功した内容";
+    const mockTitle = "回復成功";
     mockFetch
       .mockRejectedValueOnce(new Error("API timeout"))
       .mockResolvedValueOnce({
@@ -116,6 +120,7 @@ describe("extractContent", () => {
         json: async () => ({
           data: {
             markdown: mockContent,
+            metadata: { title: mockTitle },
           },
         }),
       });
@@ -130,6 +135,7 @@ describe("extractContent", () => {
     expect(result).toEqual({
       success: true,
       content: mockContent,
+      title: mockTitle,
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -217,5 +223,26 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("Firecrawl API error: 401 Unauthorized");
+  });
+
+  it("タイトルメタデータが存在しない場合、ホスト名をフォールバックとして使用する", async () => {
+    const mockContent = "# テスト記事\n\nこれはテスト記事の内容です。";
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          markdown: mockContent,
+          metadata: {},
+        },
+      }),
+    });
+
+    const result = await extractContent("https://example.com", "fc-test-key");
+
+    expect(result).toEqual({
+      success: true,
+      content: mockContent,
+      title: "example.com",
+    });
   });
 });
