@@ -83,7 +83,7 @@ export function ContentExtractorTest() {
       }
 
       // 要約結果をSlackメッセージ形式に変換
-      const title = new URL(url.trim()).hostname;
+      const title = result?.title || new URL(url.trim()).hostname;
       const modelName = summarizeResult.modelName || "Unknown Model";
 
       const message: SlackTestMessage = {

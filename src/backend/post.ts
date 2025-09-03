@@ -24,7 +24,6 @@ export async function postToSlack(
 
     if (!response.ok) {
       const errorMsg = `HTTP ${response.status}: ${response.statusText}`;
-      console.error("Slack投稿失敗:", errorMsg);
       throw new Error(errorMsg);
     }
   } catch (error) {

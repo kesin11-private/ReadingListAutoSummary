@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Chrome extension APIs mock
 const mockChromeStorage = {
@@ -20,10 +20,6 @@ Object.assign(globalThis, {
 });
 
 describe("Options page", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   afterEach(() => {
     vi.clearAllMocks();
   });
