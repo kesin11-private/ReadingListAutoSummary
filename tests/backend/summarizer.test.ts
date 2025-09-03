@@ -61,6 +61,7 @@ describe("summarizer", () => {
         success: true,
         summary: "要約文1。\n要約文2。\n要約文3。",
         retryCount: 1,
+        modelName: "gpt-4",
       });
     });
 
@@ -96,6 +97,7 @@ describe("summarizer", () => {
         success: false,
         error: "要約結果が空です",
         retryCount: 3,
+        modelName: "gpt-4",
       });
     });
 
@@ -123,6 +125,7 @@ describe("summarizer", () => {
         success: false,
         error: "API Error",
         retryCount: 3,
+        modelName: "gpt-4",
       });
       expect(mockCreate).toHaveBeenCalledTimes(3);
     });
@@ -161,6 +164,7 @@ describe("summarizer", () => {
         success: true,
         summary: "成功した要約文。",
         retryCount: 2,
+        modelName: "gpt-4",
       });
       expect(mockCreate).toHaveBeenCalledTimes(2);
     });
@@ -256,11 +260,7 @@ describe("summarizer", () => {
           "\n" +
           "gpt-4による要約\n" +
           "\n" +
-          "要約文1。\n" +
-          "\n" +
-          "要約文2。\n" +
-          "\n" +
-          "要約文3。",
+          "要約文1。\n要約文2。\n要約文3。",
       );
     });
 
@@ -278,10 +278,7 @@ describe("summarizer", () => {
           "\n" +
           "gpt-4による要約\n" +
           "\n" +
-          "要約文1のみ。\n" +
-          "\n" +
-          "\n" +
-          "\n",
+          "要約文1のみ。",
       );
     });
   });

@@ -321,9 +321,7 @@ function App() {
 
         {/* Slack通知設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
-          <h2 class="text-lg font-semibold mb-4">
-            Slack通知設定（今後実装予定）
-          </h2>
+          <h2 class="text-lg font-semibold mb-4">Slack通知設定</h2>
 
           <div>
             <label

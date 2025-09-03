@@ -8,6 +8,7 @@ export interface SummarizeResult {
   summary?: string;
   error?: string;
   retryCount?: number;
+  modelName?: string;
 }
 
 /**
@@ -84,6 +85,7 @@ export async function summarizeContent(
         success: true,
         summary,
         retryCount: attempt,
+        modelName: config.model,
       };
     } catch (error) {
       const errorMessage =
@@ -106,6 +108,7 @@ export async function summarizeContent(
         success: false,
         error: errorMessage,
         retryCount: attempt,
+        modelName: config.model,
       };
     }
   }
@@ -126,11 +129,7 @@ export async function summarizeContent(
  *
  * {model_name}による要約
  *
- * {本文section1}
- *
- * {本文section2}
- *
- * {本文section3}
+ * {summary}
  */
 export function formatSlackMessage(
   title: string,
@@ -138,22 +137,12 @@ export function formatSlackMessage(
   modelName: string,
   summary: string,
 ): string {
-  // 要約を3つのセクションに分割
-  const lines = summary.split("\n").filter((line) => line.trim() !== "");
-  const section1 = lines[0] || "";
-  const section2 = lines[1] || "";
-  const section3 = lines[2] || "";
-
   return `${title}
 ${url}
 
 ${modelName}による要約
 
-${section1}
-
-${section2}
-
-${section3}`;
+${summary}`;
 }
 
 /**

@@ -39,8 +39,10 @@ describe("extractContent", () => {
 
   it("正常な本文抽出が成功する", async () => {
     const mockContent = "# テスト記事\n\nこれはテスト記事の内容です。";
+    const mockTitle = "テスト記事";
     mockScrapeUrl.mockResolvedValue({
       markdown: mockContent,
+      metadata: { title: mockTitle },
     });
 
     const result = await extractContent("https://example.com", "fc-test-key");
@@ -48,6 +50,7 @@ describe("extractContent", () => {
     expect(result).toEqual({
       success: true,
       content: mockContent,
+      title: mockTitle,
     });
     expect(mockScrapeUrl).toHaveBeenCalledWith("https://example.com", {
       formats: ["markdown"],
@@ -87,10 +90,12 @@ describe("extractContent", () => {
 
   it("APIエラー時に1回目で失敗したら2回目で成功する", async () => {
     const mockContent = "# 回復成功\n\n最終的に成功した内容";
+    const mockTitle = "回復成功";
     mockScrapeUrl
       .mockRejectedValueOnce(new Error("API timeout"))
       .mockResolvedValueOnce({
         markdown: mockContent,
+        metadata: { title: mockTitle },
       });
 
     const extractPromise = extractContent("https://example.com", "fc-test-key");
@@ -103,6 +108,7 @@ describe("extractContent", () => {
     expect(result).toEqual({
       success: true,
       content: mockContent,
+      title: mockTitle,
     });
     expect(mockScrapeUrl).toHaveBeenCalledTimes(2);
   });
@@ -172,5 +178,21 @@ describe("extractContent", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("文字列エラー");
+  });
+
+  it("タイトルメタデータが存在しない場合、ホスト名をフォールバックとして使用する", async () => {
+    const mockContent = "# テスト記事\n\nこれはテスト記事の内容です。";
+    mockScrapeUrl.mockResolvedValue({
+      markdown: mockContent,
+      metadata: {},
+    });
+
+    const result = await extractContent("https://example.com", "fc-test-key");
+
+    expect(result).toEqual({
+      success: true,
+      content: mockContent,
+      title: "example.com",
+    });
   });
 });
