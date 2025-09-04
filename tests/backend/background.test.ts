@@ -72,6 +72,7 @@ describe("getSettings", () => {
     expect(settings).toEqual({
       daysUntilRead: 30,
       daysUntilDelete: 60,
+      maxEntriesPerRun: 3,
       openaiEndpoint: undefined,
       openaiApiKey: undefined,
       openaiModel: undefined,
@@ -82,6 +83,7 @@ describe("getSettings", () => {
     expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
       "daysUntilRead",
       "daysUntilDelete",
+      "maxEntriesPerRun",
       "openaiEndpoint",
       "openaiApiKey",
       "openaiModel",
@@ -95,6 +97,7 @@ describe("getSettings", () => {
     const storedSettings = {
       daysUntilRead: 14,
       daysUntilDelete: 30,
+      maxEntriesPerRun: 5,
       openaiEndpoint: "https://api.openai.com/v1",
       openaiApiKey: "test-key",
       openaiModel: "gpt-3.5-turbo",
@@ -117,6 +120,7 @@ describe("getSettings", () => {
     expect(settings).toEqual({
       daysUntilRead: 30,
       daysUntilDelete: 60,
+      maxEntriesPerRun: 3,
     });
   });
 });
@@ -540,6 +544,7 @@ describe("processReadingListEntries", () => {
   const mockSettings = {
     daysUntilRead: 30,
     daysUntilDelete: 60,
+    maxEntriesPerRun: 3,
   };
 
   it("統合処理：設定取得、エントリ取得、フィルタリング、処理実行", async () => {
@@ -627,5 +632,110 @@ describe("processReadingListEntries", () => {
 
     // 両方の記事に対して処理が試行されることを確認
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it("maxEntriesPerRunの設定に従って処理数を制限する", async () => {
+    // 5件の既読化対象エントリを準備（全て古い順）
+    const mockEntries = [
+      {
+        url: "https://example.com/1",
+        title: "最古の記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 40 * 24 * 60 * 60 * 1000, // 40日前
+        lastUpdateTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
+      },
+      {
+        url: "https://example.com/2",
+        title: "2番目に古い記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 39 * 24 * 60 * 60 * 1000, // 39日前
+        lastUpdateTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
+      },
+      {
+        url: "https://example.com/3",
+        title: "3番目に古い記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 38 * 24 * 60 * 60 * 1000, // 38日前
+        lastUpdateTime: Date.now() - 38 * 24 * 60 * 60 * 1000,
+      },
+      {
+        url: "https://example.com/4",
+        title: "4番目に古い記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 37 * 24 * 60 * 60 * 1000, // 37日前
+        lastUpdateTime: Date.now() - 37 * 24 * 60 * 60 * 1000,
+      },
+      {
+        url: "https://example.com/5",
+        title: "5番目に古い記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 36 * 24 * 60 * 60 * 1000, // 36日前
+        lastUpdateTime: Date.now() - 36 * 24 * 60 * 60 * 1000,
+      },
+    ];
+
+    // maxEntriesPerRun = 3 の設定
+    const settingsWithLimit = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+      maxEntriesPerRun: 3,
+    };
+
+    mockChromeStorageLocal.get.mockResolvedValue(settingsWithLimit);
+    mockChromeReadingList.query.mockResolvedValue(mockEntries);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+
+    await processReadingListEntries();
+
+    // 3件のみ処理されることを確認（最も古い3件）
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+      url: "https://example.com/1",
+      hasBeenRead: true,
+    });
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+      url: "https://example.com/2",
+      hasBeenRead: true,
+    });
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+      url: "https://example.com/3",
+      hasBeenRead: true,
+    });
+
+    // 4番目と5番目の記事は処理されないことを確認
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalledWith({
+      url: "https://example.com/4",
+      hasBeenRead: true,
+    });
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalledWith({
+      url: "https://example.com/5",
+      hasBeenRead: true,
+    });
+  });
+
+  it("maxEntriesPerRunが未設定の場合はデフォルト値3を使用する", async () => {
+    // maxEntriesPerRunを含まない設定
+    const settingsWithoutMaxEntries = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+    };
+
+    // 5件の既読化対象エントリを準備
+    const mockEntries = Array.from({ length: 5 }, (_, i) => ({
+      url: `https://example.com/${i + 1}`,
+      title: `記事${i + 1}`,
+      hasBeenRead: false,
+      creationTime: Date.now() - (40 - i) * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - (40 - i) * 24 * 60 * 60 * 1000,
+    }));
+
+    mockChromeStorageLocal.get.mockResolvedValue(settingsWithoutMaxEntries);
+    mockChromeReadingList.query.mockResolvedValue(mockEntries);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+
+    await processReadingListEntries();
+
+    // デフォルト値3件のみ処理されることを確認
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
   });
 });

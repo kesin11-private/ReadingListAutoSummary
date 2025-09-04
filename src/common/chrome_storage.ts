@@ -1,6 +1,7 @@
 export interface Settings {
   daysUntilRead: number;
   daysUntilDelete: number;
+  maxEntriesPerRun?: number;
   openaiEndpoint?: string;
   openaiApiKey?: string;
   openaiModel?: string;
@@ -27,6 +28,7 @@ export const DEFAULT_SYSTEM_PROMPT =
 export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: 60,
+  maxEntriesPerRun: 3,
 };
 
 /**
@@ -37,6 +39,7 @@ export async function getSettings(): Promise<Settings> {
     const result = await chrome.storage.local.get([
       "daysUntilRead",
       "daysUntilDelete",
+      "maxEntriesPerRun",
       "openaiEndpoint",
       "openaiApiKey",
       "openaiModel",
@@ -49,6 +52,8 @@ export async function getSettings(): Promise<Settings> {
       daysUntilRead: result.daysUntilRead ?? DEFAULT_SETTINGS.daysUntilRead,
       daysUntilDelete:
         result.daysUntilDelete ?? DEFAULT_SETTINGS.daysUntilDelete,
+      maxEntriesPerRun:
+        result.maxEntriesPerRun ?? DEFAULT_SETTINGS.maxEntriesPerRun,
       openaiEndpoint: result.openaiEndpoint,
       openaiApiKey: result.openaiApiKey,
       openaiModel: result.openaiModel,
@@ -71,6 +76,11 @@ export async function saveSettings(settings: Settings): Promise<void> {
       daysUntilRead: settings.daysUntilRead,
       daysUntilDelete: settings.daysUntilDelete,
     };
+
+    // maxEntriesPerRun は必須項目として保存
+    if (settings.maxEntriesPerRun !== undefined) {
+      settingsToSave.maxEntriesPerRun = settings.maxEntriesPerRun;
+    }
 
     // オプション項目は値が存在する場合のみ保存
     if (settings.openaiEndpoint) {
@@ -122,6 +132,18 @@ export function validateSettings(settings: Partial<Settings>): string[] {
       settings.daysUntilDelete > 365
     ) {
       errors.push("削除までの日数は1-365の整数で入力してください");
+    }
+  }
+
+  if (settings.maxEntriesPerRun !== undefined) {
+    if (
+      !Number.isInteger(settings.maxEntriesPerRun) ||
+      settings.maxEntriesPerRun < 1 ||
+      settings.maxEntriesPerRun > 100
+    ) {
+      errors.push(
+        "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
+      );
     }
   }
 
