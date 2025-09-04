@@ -168,7 +168,7 @@ function App() {
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p class="text-xs text-gray-500 mt-1">
-                既読エントリをこの日数経過後に自動で削除します
+                既読にしてからこの日数経過後に自動で削除します
               </p>
             </div>
           </div>
