@@ -396,17 +396,23 @@ export async function processReadingListEntries(): Promise<void> {
   try {
     // 設定を取得
     const settings = await getSettings();
+    const maxEntriesPerRun = settings.maxEntriesPerRun ?? 3; // フォールバック
     console.log(
-      `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日`,
+      `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1回の実行で既読にする最大エントリ数${maxEntriesPerRun}件`,
     );
 
     // エントリ一覧を取得
     const entries = await getReadingListEntries();
 
     // 既読化対象のエントリをフィルタリング
-    const entriesToMarkAsRead = entries.filter((entry) =>
+    const allEntriesToMarkAsRead = entries.filter((entry) =>
       shouldMarkAsRead(entry, settings.daysUntilRead),
     );
+
+    // 最大エントリ数で制限（古い順にソート後、先頭から指定数を取得）
+    const entriesToMarkAsRead = allEntriesToMarkAsRead
+      .sort((a, b) => a.creationTime - b.creationTime) // 古い順でソート
+      .slice(0, maxEntriesPerRun);
 
     // 削除対象のエントリをフィルタリング
     const entriesToDelete = entries.filter((entry) =>
@@ -414,7 +420,7 @@ export async function processReadingListEntries(): Promise<void> {
     );
 
     console.log(
-      `処理対象: 既読化${entriesToMarkAsRead.length}件、削除${entriesToDelete.length}件`,
+      `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち）、削除${entriesToDelete.length}件`,
     );
 
     // 既読化処理

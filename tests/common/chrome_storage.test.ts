@@ -38,10 +38,13 @@ describe("chrome_storage", () => {
       expect(mockChromeStorage.local.get).toHaveBeenCalledWith([
         "daysUntilRead",
         "daysUntilDelete",
+        "maxEntriesPerRun",
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
         "slackWebhookUrl",
+        "firecrawlApiKey",
+        "systemPrompt",
       ]);
     });
 
@@ -49,6 +52,7 @@ describe("chrome_storage", () => {
       const storedSettings = {
         daysUntilRead: 45,
         daysUntilDelete: 90,
+        maxEntriesPerRun: 5,
         openaiEndpoint: "https://api.example.com/v1",
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
@@ -83,6 +87,7 @@ describe("chrome_storage", () => {
       const settings: Settings = {
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 5,
       };
 
       await saveSettings(settings);
@@ -90,6 +95,7 @@ describe("chrome_storage", () => {
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 5,
       });
     });
 
@@ -97,6 +103,7 @@ describe("chrome_storage", () => {
       const settings: Settings = {
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 7,
         openaiEndpoint: "https://api.openai.com/v1",
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
@@ -110,6 +117,7 @@ describe("chrome_storage", () => {
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 7,
         openaiEndpoint: "https://api.openai.com/v1",
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
@@ -123,6 +131,7 @@ describe("chrome_storage", () => {
       const settings: Settings = {
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 3,
         openaiEndpoint: "",
         openaiApiKey: "",
         openaiModel: "",
@@ -136,6 +145,7 @@ describe("chrome_storage", () => {
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 3,
       });
     });
 
@@ -143,6 +153,7 @@ describe("chrome_storage", () => {
       const settings: Settings = {
         daysUntilRead: 20,
         daysUntilDelete: 40,
+        maxEntriesPerRun: 3,
       };
       const error = new Error("Storage error");
       mockChromeStorage.local.set.mockRejectedValue(error);
@@ -161,6 +172,7 @@ describe("chrome_storage", () => {
       const settings: Settings = {
         daysUntilRead: 30,
         daysUntilDelete: 60,
+        maxEntriesPerRun: 5,
         openaiEndpoint: "https://api.openai.com/v1",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
       };
@@ -191,6 +203,18 @@ describe("chrome_storage", () => {
       );
       expect(validateSettings({ daysUntilDelete: 2.5 })).toContain(
         "削除までの日数は1-365の整数で入力してください",
+      );
+    });
+
+    it("最大エントリ数が無効な場合はエラーを返す", () => {
+      expect(validateSettings({ maxEntriesPerRun: 0 })).toContain(
+        "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
+      );
+      expect(validateSettings({ maxEntriesPerRun: 101 })).toContain(
+        "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
+      );
+      expect(validateSettings({ maxEntriesPerRun: 1.5 })).toContain(
+        "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
       );
     });
 
