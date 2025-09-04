@@ -1,10 +1,28 @@
-import FirecrawlApp from "@mendable/firecrawl-js";
-
 export interface ExtractContentResult {
   success: boolean;
   content?: string;
   title?: string;
   error?: string;
+}
+
+interface FirecrawlV2Metadata {
+  title?: string;
+  description?: string;
+  language?: string;
+  sourceURL?: string;
+  statusCode?: number;
+  error?: string;
+}
+
+interface FirecrawlV2Data {
+  markdown?: string;
+  metadata?: FirecrawlV2Metadata;
+}
+
+interface FirecrawlV2Response {
+  success: boolean;
+  data?: FirecrawlV2Data;
+  warning?: string;
 }
 
 /**
@@ -41,7 +59,7 @@ async function retryWithExponentialBackoff<T>(
 }
 
 /**
- * Firecrawl SDKを使用してURLから本文を抽出
+ * Firecrawl APIを使用してURLから本文を抽出
  * 失敗時は指数バックオフで最大3回までリトライ
  */
 export async function extractContent(
@@ -60,23 +78,38 @@ export async function extractContent(
   console.log(`本文抽出開始: ${url}`);
 
   try {
-    const app = new FirecrawlApp({ apiKey });
-
     const result = await retryWithExponentialBackoff(async () => {
       console.log(`Firecrawl API呼び出し: ${url}`);
-      const response = await app.scrapeUrl(url, {
-        formats: ["markdown"],
-        onlyMainContent: true,
+
+      const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          formats: ["markdown"],
+          onlyMainContent: true,
+        }),
       });
 
+      if (!response.ok) {
+        throw new Error(
+          `Firecrawl API error: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const apiResponse: FirecrawlV2Response = await response.json();
+
       // エラーレスポンスの場合
-      if (!response || !("markdown" in response) || !response.markdown) {
+      if (!apiResponse || !apiResponse.data || !apiResponse.data.markdown) {
         throw new Error("抽出された本文が空です");
       }
 
       return {
-        content: response.markdown,
-        title: response.metadata?.title || new URL(url).hostname,
+        content: apiResponse.data.markdown,
+        title: apiResponse.data.metadata?.title || new URL(url).hostname,
       };
     });
 
