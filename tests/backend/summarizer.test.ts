@@ -255,7 +255,7 @@ describe("summarizer", () => {
       );
 
       expect(result).toBe(
-        "テストタイトル\n" +
+        "*テストタイトル*\n" +
           "https://example.com\n" +
           "\n" +
           "gpt-4による要約\n" +
@@ -273,7 +273,7 @@ describe("summarizer", () => {
       );
 
       expect(result).toBe(
-        "テストタイトル\n" +
+        "*テストタイトル*\n" +
           "https://example.com\n" +
           "\n" +
           "gpt-4による要約\n" +
@@ -293,7 +293,7 @@ describe("summarizer", () => {
       );
 
       expect(result).toBe(
-        "テストタイトル\n" +
+        "*テストタイトル*\n" +
           "https://example.com\n" +
           "\n" +
           "gpt-4による要約\n" +
