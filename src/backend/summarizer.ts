@@ -127,7 +127,7 @@ export async function summarizeContent(
  * *{title}*
  * {url}
  *
- * {model_name}による要約
+ * _{model_name}による要約_
  *
  * {summary}
  */
@@ -140,7 +140,7 @@ export function formatSlackMessage(
   return `*${title}*
 ${url}
 
-${modelName}による要約
+_${modelName}による要約_
 
 ${summary}`;
 }
@@ -157,7 +157,7 @@ export function formatSlackErrorMessage(
   return `*${title}*
 ${url}
 
-${modelName}による要約
+_${modelName}による要約_
 
 要約生成に失敗しました: ${error}
 
