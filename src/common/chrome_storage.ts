@@ -27,7 +27,7 @@ export const DEFAULT_SYSTEM_PROMPT =
 // デフォルト設定
 export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
-  daysUntilDelete: 60,
+  daysUntilDelete: -1,
   maxEntriesPerRun: 3,
 };
 
@@ -128,10 +128,10 @@ export function validateSettings(settings: Partial<Settings>): string[] {
   if (settings.daysUntilDelete !== undefined) {
     if (
       !Number.isInteger(settings.daysUntilDelete) ||
-      settings.daysUntilDelete < 1 ||
-      settings.daysUntilDelete > 365
+      (settings.daysUntilDelete !== -1 &&
+        (settings.daysUntilDelete < 1 || settings.daysUntilDelete > 365))
     ) {
-      errors.push("削除までの日数は1-365の整数で入力してください");
+      errors.push("削除までの日数は-1または1-365の整数で入力してください");
     }
   }
 
@@ -149,7 +149,8 @@ export function validateSettings(settings: Partial<Settings>): string[] {
 
   if (
     settings.daysUntilRead !== undefined &&
-    settings.daysUntilDelete !== undefined
+    settings.daysUntilDelete !== undefined &&
+    settings.daysUntilDelete !== -1
   ) {
     if (settings.daysUntilRead >= settings.daysUntilDelete) {
       errors.push("削除までの日数は既読化までの日数より大きくしてください");
