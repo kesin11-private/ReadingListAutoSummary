@@ -1,5 +1,6 @@
 import {
   DEFAULT_SYSTEM_PROMPT,
+  DELETION_DISABLED_VALUE,
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
@@ -226,6 +227,10 @@ export function shouldDelete(
   entry: chrome.readingList.ReadingListEntry,
   daysUntilDelete: number,
 ): boolean {
+  if (daysUntilDelete === DELETION_DISABLED_VALUE) {
+    return false; // 削除機能が無効の場合は削除対象外
+  }
+
   if (!entry.hasBeenRead) {
     return false; // 未読の場合は削除対象外
   }

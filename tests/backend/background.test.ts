@@ -7,7 +7,10 @@ import {
   shouldDelete,
   shouldMarkAsRead,
 } from "../../src/backend/background";
-import { getSettings } from "../../src/common/chrome_storage";
+import {
+  DELETION_DISABLED_VALUE,
+  getSettings,
+} from "../../src/common/chrome_storage";
 
 // content_extractor モジュールのモック
 vi.mock("../../src/backend/content_extractor", () => ({
@@ -71,7 +74,7 @@ describe("getSettings", () => {
 
     expect(settings).toEqual({
       daysUntilRead: 30,
-      daysUntilDelete: 60,
+      daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       openaiEndpoint: undefined,
       openaiApiKey: undefined,
@@ -119,7 +122,7 @@ describe("getSettings", () => {
 
     expect(settings).toEqual({
       daysUntilRead: 30,
-      daysUntilDelete: 60,
+      daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
     });
   });
@@ -273,6 +276,20 @@ describe("shouldDelete", () => {
     const result = shouldDelete(entry, 60);
 
     expect(result).toBe(true);
+  });
+
+  it("削除機能が無効化されている場合は削除対象外", () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: true,
+      creationTime: Date.now() - 90 * 24 * 60 * 60 * 1000, // 90日前作成
+      lastUpdateTime: Date.now() - 60 * 24 * 60 * 60 * 1000, // 60日前に既読化
+    };
+
+    const result = shouldDelete(entry, DELETION_DISABLED_VALUE);
+
+    expect(result).toBe(false);
   });
 });
 
@@ -737,5 +754,47 @@ describe("processReadingListEntries", () => {
 
     // デフォルト値3件のみ処理されることを確認
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
+  });
+
+  it("削除機能が無効化されている場合は削除処理をスキップする", async () => {
+    const settingsWithDeleteDisabled = {
+      daysUntilRead: 30,
+      daysUntilDelete: DELETION_DISABLED_VALUE, // 削除機能無効
+      maxEntriesPerRun: 3,
+    };
+
+    const mockEntries = [
+      {
+        url: "https://example.com/1",
+        title: "古い未読記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000, // 35日前（既読化対象）
+        lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      },
+      {
+        url: "https://example.com/2",
+        title: "非常に古い既読記事",
+        hasBeenRead: true,
+        creationTime: Date.now() - 100 * 24 * 60 * 60 * 1000, // 100日前作成
+        lastUpdateTime: Date.now() - 90 * 24 * 60 * 60 * 1000, // 90日前既読化（通常なら削除対象）
+      },
+    ];
+
+    mockChromeStorageLocal.get.mockResolvedValue(settingsWithDeleteDisabled);
+    mockChromeReadingList.query.mockResolvedValue(mockEntries);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
+
+    await processReadingListEntries();
+
+    // 既読化処理は実行される
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+      url: "https://example.com/1",
+      hasBeenRead: true,
+    });
+
+    // 削除処理は実行されない
+    expect(mockChromeReadingList.removeEntry).not.toHaveBeenCalled();
   });
 });
