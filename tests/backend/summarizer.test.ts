@@ -255,10 +255,10 @@ describe("summarizer", () => {
       );
 
       expect(result).toBe(
-        "テストタイトル\n" +
+        "*テストタイトル*\n" +
           "https://example.com\n" +
           "\n" +
-          "gpt-4による要約\n" +
+          "_gpt-4による要約_\n" +
           "\n" +
           "要約文1。\n要約文2。\n要約文3。",
       );
@@ -273,10 +273,10 @@ describe("summarizer", () => {
       );
 
       expect(result).toBe(
-        "テストタイトル\n" +
+        "*テストタイトル*\n" +
           "https://example.com\n" +
           "\n" +
-          "gpt-4による要約\n" +
+          "_gpt-4による要約_\n" +
           "\n" +
           "要約文1のみ。",
       );
@@ -293,10 +293,10 @@ describe("summarizer", () => {
       );
 
       expect(result).toBe(
-        "テストタイトル\n" +
+        "*テストタイトル*\n" +
           "https://example.com\n" +
           "\n" +
-          "gpt-4による要約\n" +
+          "_gpt-4による要約_\n" +
           "\n" +
           "要約生成に失敗しました: API接続エラー\n" +
           "\n" +
