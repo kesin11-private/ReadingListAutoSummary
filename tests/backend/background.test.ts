@@ -7,7 +7,10 @@ import {
   shouldDelete,
   shouldMarkAsRead,
 } from "../../src/backend/background";
-import { getSettings } from "../../src/common/chrome_storage";
+import {
+  DELETION_DISABLED_VALUE,
+  getSettings,
+} from "../../src/common/chrome_storage";
 
 // content_extractor モジュールのモック
 vi.mock("../../src/backend/content_extractor", () => ({
@@ -71,7 +74,7 @@ describe("getSettings", () => {
 
     expect(settings).toEqual({
       daysUntilRead: 30,
-      daysUntilDelete: -1,
+      daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       openaiEndpoint: undefined,
       openaiApiKey: undefined,
@@ -119,7 +122,7 @@ describe("getSettings", () => {
 
     expect(settings).toEqual({
       daysUntilRead: 30,
-      daysUntilDelete: -1,
+      daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
     });
   });
@@ -284,7 +287,7 @@ describe("shouldDelete", () => {
       lastUpdateTime: Date.now() - 60 * 24 * 60 * 60 * 1000, // 60日前に既読化
     };
 
-    const result = shouldDelete(entry, -1);
+    const result = shouldDelete(entry, DELETION_DISABLED_VALUE);
 
     expect(result).toBe(false);
   });
@@ -756,7 +759,7 @@ describe("processReadingListEntries", () => {
   it("削除機能が無効化されている場合は削除処理をスキップする", async () => {
     const settingsWithDeleteDisabled = {
       daysUntilRead: 30,
-      daysUntilDelete: -1, // 削除機能無効
+      daysUntilDelete: DELETION_DISABLED_VALUE, // 削除機能無効
       maxEntriesPerRun: 3,
     };
 

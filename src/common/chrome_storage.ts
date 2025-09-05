@@ -24,10 +24,13 @@ export const DEFAULT_SYSTEM_PROMPT =
   "多くのCLIツールやdotfileマネージャーも~/.configをデフォルトとしており、~/Library/Application SupportはGUIアプリケーションがユーザーに代わって設定を管理する場合にのみ適していると結論付けています。\n" +
   "</example>";
 
+// 削除機能を無効にする値
+export const DELETION_DISABLED_VALUE = -1;
+
 // デフォルト設定
 export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
-  daysUntilDelete: -1,
+  daysUntilDelete: DELETION_DISABLED_VALUE,
   maxEntriesPerRun: 3,
 };
 
@@ -128,7 +131,7 @@ export function validateSettings(settings: Partial<Settings>): string[] {
   if (settings.daysUntilDelete !== undefined) {
     if (
       !Number.isInteger(settings.daysUntilDelete) ||
-      (settings.daysUntilDelete !== -1 &&
+      (settings.daysUntilDelete !== DELETION_DISABLED_VALUE &&
         (settings.daysUntilDelete < 1 || settings.daysUntilDelete > 365))
     ) {
       errors.push("削除までの日数は-1または1-365の整数で入力してください");
@@ -150,7 +153,7 @@ export function validateSettings(settings: Partial<Settings>): string[] {
   if (
     settings.daysUntilRead !== undefined &&
     settings.daysUntilDelete !== undefined &&
-    settings.daysUntilDelete !== -1
+    settings.daysUntilDelete !== DELETION_DISABLED_VALUE
   ) {
     if (settings.daysUntilRead >= settings.daysUntilDelete) {
       errors.push("削除までの日数は既読化までの日数より大きくしてください");

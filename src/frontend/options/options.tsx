@@ -4,6 +4,7 @@ import "../styles/tailwind.css";
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
+  DELETION_DISABLED_VALUE,
   getSettings,
   type Settings,
   saveSettings as saveSettingsToStorage,
@@ -156,7 +157,7 @@ function App() {
               <input
                 id="daysUntilDelete"
                 type="number"
-                min="-1"
+                min={DELETION_DISABLED_VALUE}
                 max="365"
                 value={settings.daysUntilDelete}
                 onInput={(e) =>
@@ -168,7 +169,8 @@ function App() {
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p class="text-xs text-gray-500 mt-1">
-                既読にしてからこの日数経過後に自動で削除します（-1を入力すると無効になります）
+                既読にしてからこの日数経過後に自動で削除します（
+                {DELETION_DISABLED_VALUE}を入力すると無効になります）
               </p>
             </div>
 
