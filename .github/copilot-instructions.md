@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # ReadingListAutoSummary AI Coding Guide
 
 ## Project Overview
@@ -14,26 +18,34 @@ The build process uses a unique dual-bundling approach:
 1. Main Vite build for frontend components
 2. Secondary `generateStandaloneBundle()` for background script (ES modules format)
 
-### Key Build Commands
+### Essential Development Commands
 ```bash
-pnpm dev              # Development build
-pnpm build            # Production build  
-pnpm build:release    # Build + zip for Chrome Web Store
-pnpm check:ai         # Full validation pipeline (type-check + lint + test + build)
+pnpm dev              # Development build with watch mode
+pnpm build            # Production build
+pnpm build:release    # Production build + zip for Chrome Web Store
+pnpm test             # Run all tests (--silent flag)
+pnpm test:ci          # Run tests with coverage reporting
+pnpm type-check       # TypeScript type checking (tsc --noEmit)
+pnpm biome            # Check code formatting and linting
+pnpm biome:fix        # Auto-fix code formatting and linting issues
+pnpm check:ai         # Complete validation pipeline (type-check + lint + test + build)
 ```
+
+**Important**: Always use `pnpm check:ai` before commits - it runs the full validation pipeline that AI tools need.
 
 ## Critical Implementation Details
 
 ### Chrome Extension Specifics
-- **Permissions**: `["storage", "readingList"]` in `manifest.json`
+- **Permissions**: `["storage", "readingList", "alarms"]` in `manifest.json`
+- **Host Permissions**: `["https://hooks.slack.com/*"]` for Slack webhook integration
 - **Storage**: Uses `chrome.storage.local` for settings persistence
-- **Background**: Service worker runs periodically to process Reading List entries
-- **Runtime dependencies**: Minimal. The options page uses `preact` (bundled). Others are primarily devDependencies.
+- **Background**: Service worker (`src/backend/background.ts`) runs periodically via `chrome.alarms` API
+- **Dependencies**: Runtime deps include `openai` and `preact`. Build uses TypeScript, Vite, Biome, and Vitest
 
 ### Data Flow Pattern
 1. Background script queries `chrome.readingList` API
 2. Check entry ages against user-configured thresholds (default: 30 days → read, 60 days → delete)
-3. On marking as read: Extract content with Firecrawl → Summarize with OpenAI → Post to Slack
+3. On marking as read: Extract content → Summarize with OpenAI-compatible API → Post to Slack
 4. Retry logic: Exponential backoff (3 attempts max) for external API failures
 
 ### Slack Integration Format
@@ -64,11 +76,17 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - Tests
   - Runs in the existing jsdom environment (no extra setup required)
 
-### Testing Structure
-- **Frontend tests**: `tests/frontend/**/*.test.ts` (jsdom environment)  
-- **Backend tests**: `tests/backend/**/*.test.ts` (node environment)
-- **No watch mode**: Vitest watch disabled (`watch: false`) for AI compatibility
-- **Console mocking**: Do not mock console methods (`console.log`, `console.error`, etc.) in tests - they are not necessary to verify and should be left unmocked
+### Testing Configuration
+- **Test Framework**: Vitest with jsdom environment
+- **Structure**: 
+  - Frontend tests: `tests/frontend/**/*.test.ts`
+  - Backend tests: `tests/backend/**/*.test.ts`
+  - Common utilities: `tests/common/**/*.test.ts`
+- **Key Settings**: 
+  - Watch mode disabled (`watch: false`) for AI compatibility
+  - Silent mode enabled for cleaner output
+  - Coverage available via `test:ci`
+- **Console Methods**: Do not mock `console.log`, `console.error` etc. in tests
 
 ### Code Quality Tools
 - **Biome**: Comprehensive linting/formatting with strict rules
@@ -98,14 +116,31 @@ pnpm check:ai         # Full validation pipeline (type-check + lint + test + bui
 - Install packages with `pnpm add <package>`
 - Install dev dependencies with `pnpm add -D <package>`
 
-## External Dependencies (Not Yet Installed)
-Based on README.md, the following will be needed:
-- Firecrawl JS SDK for content extraction
-- OpenAI SDK for summarization
-- Both support retry mechanisms for reliability
+## Key Source Files
+- **Background Script**: `src/backend/background.ts` - Main service worker entry point
+- **Content Extraction**: `src/backend/content_extractor.ts` - Web content extraction logic
+- **Summarization**: `src/backend/summarizer.ts` - OpenAI API integration for summarization
+- **Slack Integration**: `src/backend/post.ts` - Slack webhook posting
+- **Storage Layer**: `src/common/chrome_storage.ts` - Chrome storage API wrapper
+- **Options UI**: `src/frontend/options/options.tsx` - Settings page (Preact component)
+- **Type Definitions**: `src/types/messages.ts` - Shared type definitions
 
-## Common Gotchas
-- Vite builds background script separately using custom `generateStandaloneBundle()`
-- Chrome extension requires specific output structure - don't modify the build config lightly
-- All Chrome APIs are available in background script context, not in options page
-- Extension runs with limited permissions - stick to declared manifest permissions
+## Architecture Notes
+
+### Build System Specifics
+- **Dual bundling**: Vite handles main build, custom `generateStandaloneBundle()` handles background script
+- **Background script**: Built as ES modules (`format: "es"`) for service worker compatibility
+- **Output structure**: Carefully designed for Chrome extension - avoid modifying build config
+- **File copying**: `manifest.json` and other assets copied via custom Vite plugin
+
+### Chrome Extension Context
+- **Service Worker**: Background script runs in service worker context with full Chrome API access
+- **Options Page**: Runs in regular web page context - no direct Chrome API access (must use messages)
+- **Permissions**: Limited to `["storage", "readingList", "alarms"]` - stick to declared permissions
+- **Storage**: All settings persisted via `chrome.storage.local` with structured keys
+
+### Development Workflow
+- **Hot reload**: `pnpm dev` provides watch mode for frontend development
+- **Testing**: Separate test environments for frontend (jsdom) and backend (node)
+- **Validation**: `pnpm check:ai` runs complete pipeline before commits
+- **Extensions**: Load `dist/` folder as unpacked extension for testing
