@@ -76,17 +76,13 @@ describe("getSettings", () => {
       daysUntilRead: 30,
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
-      openaiEndpoint: undefined,
-      openaiApiKey: undefined,
-      openaiModel: undefined,
-      slackWebhookUrl: undefined,
-      firecrawlApiKey: undefined,
-      systemPrompt: undefined,
+      alarmIntervalMinutes: 720,
     });
     expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
       "daysUntilRead",
       "daysUntilDelete",
       "maxEntriesPerRun",
+      "alarmIntervalMinutes",
       "openaiEndpoint",
       "openaiApiKey",
       "openaiModel",
@@ -101,6 +97,7 @@ describe("getSettings", () => {
       daysUntilRead: 14,
       daysUntilDelete: 30,
       maxEntriesPerRun: 5,
+      alarmIntervalMinutes: 720,
       openaiEndpoint: "https://api.openai.com/v1",
       openaiApiKey: "test-key",
       openaiModel: "gpt-3.5-turbo",
@@ -124,6 +121,7 @@ describe("getSettings", () => {
       daysUntilRead: 30,
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
+      alarmIntervalMinutes: 720,
     });
   });
 });

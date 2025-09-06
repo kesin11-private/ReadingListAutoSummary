@@ -39,6 +39,7 @@ describe("chrome_storage", () => {
         "daysUntilRead",
         "daysUntilDelete",
         "maxEntriesPerRun",
+        "alarmIntervalMinutes",
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
@@ -53,6 +54,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 45,
         daysUntilDelete: 90,
         maxEntriesPerRun: 5,
+        alarmIntervalMinutes: 120,
         openaiEndpoint: "https://api.example.com/v1",
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
@@ -88,6 +90,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 5,
+        alarmIntervalMinutes: 60,
       };
 
       await saveSettings(settings);
@@ -96,6 +99,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 5,
+        alarmIntervalMinutes: 60,
       });
     });
 
@@ -104,6 +108,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 7,
+        alarmIntervalMinutes: 15,
         openaiEndpoint: "https://api.openai.com/v1",
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
@@ -118,6 +123,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 7,
+        alarmIntervalMinutes: 15,
         openaiEndpoint: "https://api.openai.com/v1",
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
@@ -132,6 +138,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 3,
+        alarmIntervalMinutes: 720,
         openaiEndpoint: "",
         openaiApiKey: "",
         openaiModel: "",
@@ -146,6 +153,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 3,
+        alarmIntervalMinutes: 720,
       });
     });
 
@@ -154,6 +162,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerRun: 3,
+        alarmIntervalMinutes: 60,
       };
       const error = new Error("Storage error");
       mockChromeStorage.local.set.mockRejectedValue(error);
@@ -173,6 +182,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 30,
         daysUntilDelete: 60,
         maxEntriesPerRun: 5,
+        alarmIntervalMinutes: 720,
         openaiEndpoint: "https://api.openai.com/v1",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
       };
@@ -270,11 +280,12 @@ describe("chrome_storage", () => {
       const errors = validateSettings({
         daysUntilRead: 0,
         daysUntilDelete: 366,
+        alarmIntervalMinutes: 0,
         openaiEndpoint: "invalid",
         slackWebhookUrl: "also-invalid",
       });
 
-      expect(errors).toHaveLength(4);
+      expect(errors).toHaveLength(5);
     });
   });
 });
