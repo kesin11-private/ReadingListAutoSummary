@@ -132,7 +132,10 @@ function App() {
                 id="alarmIntervalMinutes"
                 type="number"
                 min="1"
-                value={settings.alarmIntervalMinutes ?? 720}
+                value={
+                  settings.alarmIntervalMinutes ??
+                  DEFAULT_SETTINGS.alarmIntervalMinutes
+                }
                 onInput={(e) =>
                   handleInputChange(
                     "alarmIntervalMinutes",

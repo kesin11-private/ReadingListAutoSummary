@@ -3,6 +3,8 @@ import { processReadingListEntries } from "./background";
 
 // Chrome拡張のアラーム設定
 const ALARM_NAME = "readingListAutoProcess";
+// デフォルトの実行間隔（chrome_storage.DEFAULT_SETTINGS と同値）
+const DEFAULT_INTERVAL_MINUTES = 720;
 
 /**
  * ランタイム環境の検出
@@ -20,24 +22,9 @@ export async function setupAlarm(): Promise<void> {
   // 既存のアラームをクリア
   await chrome.alarms.clear(ALARM_NAME);
 
-  // 設定から間隔を取得（不正値はデフォルトにフォールバック）
-  let intervalMinutes: number;
-  try {
-    const settings = await getSettings();
-    const partial: Partial<import("../common/chrome_storage").Settings> = {};
-    if (settings.alarmIntervalMinutes !== undefined) {
-      partial.alarmIntervalMinutes = settings.alarmIntervalMinutes;
-    }
-    const errors = validateSettings(partial);
-    if (errors.length > 0 || !settings.alarmIntervalMinutes) {
-      // バリデーションNGまたは未設定時はデフォルト使用
-      intervalMinutes = 720;
-    } else {
-      intervalMinutes = settings.alarmIntervalMinutes;
-    }
-  } catch {
-    intervalMinutes = 720;
-  }
+  // 設定から有効な実行間隔を取得（不正値はデフォルトにフォールバック）
+  const intervalMinutes =
+    (await getIntervalMinutes()) ?? DEFAULT_INTERVAL_MINUTES;
 
   // 新しいアラームを作成
   await chrome.alarms.create(ALARM_NAME, {
@@ -78,3 +65,19 @@ export function initializeAlarmHandlers(): void {
 
 // テスト環境でない場合のみランタイムイベントを設定
 initializeAlarmHandlers();
+
+/**
+ * 設定からアラームの実行間隔（分）を取得し、妥当であれば数値を返す。
+ * 取得やバリデーションに失敗した場合は undefined を返す。
+ */
+async function getIntervalMinutes(): Promise<number | undefined> {
+  try {
+    const settings = await getSettings();
+    // validateSettings は未指定値を許容するため設定全体を渡してよい
+    const errors = validateSettings(settings);
+    if (errors.length > 0) return undefined;
+    return settings.alarmIntervalMinutes;
+  } catch {
+    return undefined;
+  }
+}
