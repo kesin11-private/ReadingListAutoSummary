@@ -29,6 +29,7 @@ describe("alarm.setupAlarm", () => {
         daysUntilDelete: -1,
       }),
       validateSettings: (_s: unknown) => [],
+      DEFAULT_INTERVAL_MINUTES: 720,
     }));
 
     // 再インポートしてモック反映
@@ -56,6 +57,7 @@ describe("alarm.setupAlarm", () => {
         daysUntilDelete: -1,
       }),
       validateSettings: (_s: unknown) => ["invalid"],
+      DEFAULT_INTERVAL_MINUTES: 720,
     }));
 
     const { setupAlarm: setup } = await import("../../src/backend/alarm");

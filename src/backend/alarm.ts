@@ -1,10 +1,12 @@
-import { getSettings, validateSettings } from "../common/chrome_storage";
+import {
+  DEFAULT_INTERVAL_MINUTES,
+  getSettings,
+  validateSettings,
+} from "../common/chrome_storage";
 import { processReadingListEntries } from "./background";
 
 // Chrome拡張のアラーム設定
 const ALARM_NAME = "readingListAutoProcess";
-// デフォルトの実行間隔（chrome_storage.DEFAULT_SETTINGS と同値）
-const DEFAULT_INTERVAL_MINUTES = 720;
 
 /**
  * ランタイム環境の検出

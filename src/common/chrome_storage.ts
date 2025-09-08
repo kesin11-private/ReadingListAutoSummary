@@ -11,6 +11,9 @@ export interface Settings {
   systemPrompt?: string;
 }
 
+// 実行間隔（分）のデフォルト値
+export const DEFAULT_INTERVAL_MINUTES = 720;
+
 // デフォルトのシステムプロンプト
 export const DEFAULT_SYSTEM_PROMPT =
   "テキストから本文を抜き出し、日本語で要約してください。\n" +
@@ -33,7 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: DELETION_DISABLED_VALUE,
   maxEntriesPerRun: 3,
-  alarmIntervalMinutes: 720,
+  alarmIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
 };
 
 /**
