@@ -30,7 +30,7 @@ export async function setupAlarm(): Promise<void> {
 
   // 新しいアラームを作成
   await chrome.alarms.create(ALARM_NAME, {
-    delayInMinutes: 1, // 1分後に初回実行
+    // 初回自動実行は行わず、設定された間隔でのみ定期実行
     periodInMinutes: intervalMinutes,
   });
 

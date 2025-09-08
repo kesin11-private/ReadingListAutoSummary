@@ -4,7 +4,11 @@ import {
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
-import type { FrontendMessage } from "../types/messages";
+import type {
+  FrontendMessage,
+  ManualExecuteMessage,
+  ManualExecuteResult,
+} from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
 import { postToSlack } from "./post";
 import {
@@ -73,6 +77,19 @@ function initializeMessageHandlers(): void {
               });
             });
           return true; // Will respond asynchronously
+        }
+
+        if ((request as ManualExecuteMessage).type === "MANUAL_EXECUTE") {
+          handleManualExecuteMessage()
+            .then((res) => sendResponse(res))
+            .catch((error: unknown) => {
+              const result: ManualExecuteResult = {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              };
+              sendResponse(result);
+            });
+          return true; // async response
         }
 
         return false;
@@ -174,6 +191,21 @@ async function handleSlackTestMessage(
     const slackMessage = formatSlackMessage(title, url, modelName, summary);
     await postToSlack(settings.slackWebhookUrl, slackMessage);
 
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 手動実行メッセージハンドラー
+ */
+async function handleManualExecuteMessage(): Promise<ManualExecuteResult> {
+  try {
+    await processReadingListEntries();
     return { success: true };
   } catch (error) {
     return {

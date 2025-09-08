@@ -43,7 +43,6 @@ describe("alarm.setupAlarm", () => {
     expect(mockChromeAlarms.create).toHaveBeenCalledWith(
       "readingListAutoProcess",
       {
-        delayInMinutes: 1,
         periodInMinutes: 15,
       },
     );
@@ -67,7 +66,6 @@ describe("alarm.setupAlarm", () => {
     expect(mockChromeAlarms.create).toHaveBeenCalledWith(
       "readingListAutoProcess",
       {
-        delayInMinutes: 1,
         periodInMinutes: 720,
       },
     );

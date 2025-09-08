@@ -20,6 +20,8 @@ function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveMessage, setSaveMessage] = useState("");
+  const [isManualRunning, setIsManualRunning] = useState(false);
+  const [manualMessage, setManualMessage] = useState<string | null>(null);
 
   // 設定を読み込み
   const loadSettings = async () => {
@@ -95,6 +97,34 @@ function App() {
       ...prev,
       systemPrompt: DEFAULT_SYSTEM_PROMPT,
     }));
+  };
+
+  const handleManualExecute = async () => {
+    setIsManualRunning(true);
+    setManualMessage(null);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "MANUAL_EXECUTE",
+      });
+      if (response && typeof response === "object" && "success" in response) {
+        setManualMessage(
+          response.success
+            ? "実行が完了しました"
+            : `実行に失敗しました: ${response.error || "不明なエラー"}`,
+        );
+      } else {
+        setManualMessage("不正なレスポンス形式です");
+      }
+    } catch (error) {
+      setManualMessage(
+        error instanceof Error
+          ? `実行エラー: ${error.message}`
+          : `実行エラー: ${String(error)}`,
+      );
+    } finally {
+      setIsManualRunning(false);
+      setTimeout(() => setManualMessage(null), 3000);
+    }
   };
 
   if (isLoading) {
@@ -226,6 +256,21 @@ function App() {
                 アラーム実行時に一度に処理するエントリ数の上限
               </p>
             </div>
+          </div>
+
+          {/* 手動実行ボタン（このセクションの末尾） */}
+          <div class="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleManualExecute}
+              disabled={isManualRunning}
+              class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isManualRunning ? "実行中..." : "今すぐ実行"}
+            </button>
+            {manualMessage && (
+              <span class="text-sm text-gray-700">{manualMessage}</span>
+            )}
           </div>
         </section>
 

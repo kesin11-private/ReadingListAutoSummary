@@ -27,7 +27,9 @@ const mockChromeRuntime = {
 type MessageListener = (
   request: { type: string; url?: string },
   sender: chrome.runtime.MessageSender,
-  sendResponse: (response: ExtractContentResult) => void,
+  sendResponse: (
+    response: ExtractContentResult | { success: boolean; error?: string },
+  ) => void,
 ) => boolean | undefined;
 
 let messageListener: MessageListener | null = null;
@@ -202,6 +204,23 @@ describe("Message handling", () => {
 
       // sendResponse は呼ばれない
       expect(sendResponse).not.toHaveBeenCalled();
+    }
+  });
+
+  it("MANUAL_EXECUTE メッセージで成功レスポンスを返す", async () => {
+    const sendResponse = vi.fn();
+    const request = { type: "MANUAL_EXECUTE" };
+
+    expect(messageListener).toBeTruthy();
+    if (messageListener) {
+      const result = messageListener(
+        request,
+        {} as chrome.runtime.MessageSender,
+        sendResponse,
+      );
+      expect(result).toBe(true);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(sendResponse).toHaveBeenCalledWith({ success: true });
     }
   });
 });
