@@ -173,16 +173,6 @@ export function validateSettings(settings: Partial<Settings>): string[] {
   }
 
   if (
-    settings.daysUntilRead !== undefined &&
-    settings.daysUntilDelete !== undefined &&
-    settings.daysUntilDelete !== DELETION_DISABLED_VALUE
-  ) {
-    if (settings.daysUntilRead >= settings.daysUntilDelete) {
-      errors.push("削除までの日数は既読化までの日数より大きくしてください");
-    }
-  }
-
-  if (
     settings.openaiEndpoint !== undefined &&
     settings.openaiEndpoint.trim() !== ""
   ) {
