@@ -2,6 +2,7 @@ export interface Settings {
   daysUntilRead: number;
   daysUntilDelete: number;
   maxEntriesPerRun?: number;
+  alarmIntervalMinutes?: number;
   openaiEndpoint?: string;
   openaiApiKey?: string;
   openaiModel?: string;
@@ -9,6 +10,9 @@ export interface Settings {
   firecrawlApiKey?: string;
   systemPrompt?: string;
 }
+
+// 実行間隔（分）のデフォルト値
+export const DEFAULT_INTERVAL_MINUTES = 720;
 
 // デフォルトのシステムプロンプト
 export const DEFAULT_SYSTEM_PROMPT =
@@ -32,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: DELETION_DISABLED_VALUE,
   maxEntriesPerRun: 3,
+  alarmIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
 };
 
 /**
@@ -43,6 +48,7 @@ export async function getSettings(): Promise<Settings> {
       "daysUntilRead",
       "daysUntilDelete",
       "maxEntriesPerRun",
+      "alarmIntervalMinutes",
       "openaiEndpoint",
       "openaiApiKey",
       "openaiModel",
@@ -57,6 +63,8 @@ export async function getSettings(): Promise<Settings> {
         result.daysUntilDelete ?? DEFAULT_SETTINGS.daysUntilDelete,
       maxEntriesPerRun:
         result.maxEntriesPerRun ?? DEFAULT_SETTINGS.maxEntriesPerRun,
+      alarmIntervalMinutes:
+        result.alarmIntervalMinutes ?? DEFAULT_SETTINGS.alarmIntervalMinutes,
       openaiEndpoint: result.openaiEndpoint,
       openaiApiKey: result.openaiApiKey,
       openaiModel: result.openaiModel,
@@ -83,6 +91,11 @@ export async function saveSettings(settings: Settings): Promise<void> {
     // maxEntriesPerRun は必須項目として保存
     if (settings.maxEntriesPerRun !== undefined) {
       settingsToSave.maxEntriesPerRun = settings.maxEntriesPerRun;
+    }
+
+    // alarmIntervalMinutes は必須項目として保存
+    if (settings.alarmIntervalMinutes !== undefined) {
+      settingsToSave.alarmIntervalMinutes = settings.alarmIntervalMinutes;
     }
 
     // オプション項目は値が存在する場合のみ保存
@@ -147,6 +160,15 @@ export function validateSettings(settings: Partial<Settings>): string[] {
       errors.push(
         "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
       );
+    }
+  }
+
+  if (settings.alarmIntervalMinutes !== undefined) {
+    if (
+      !Number.isInteger(settings.alarmIntervalMinutes) ||
+      settings.alarmIntervalMinutes < 1
+    ) {
+      errors.push("実行間隔（分）は1以上の整数で入力してください");
     }
   }
 
