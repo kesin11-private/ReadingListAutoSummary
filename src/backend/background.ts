@@ -8,6 +8,7 @@ import type {
   FrontendMessage,
   ManualExecuteMessage,
   ManualExecuteResult,
+  SlackTestResult,
 } from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
 import { postToSlack } from "./post";
@@ -31,7 +32,11 @@ function initializeMessageHandlers(): void {
         request: FrontendMessage,
         _sender: chrome.runtime.MessageSender,
         sendResponse: (
-          response: ExtractContentResult | SummarizeResult,
+          response:
+            | ExtractContentResult
+            | SummarizeResult
+            | SlackTestResult
+            | ManualExecuteResult,
         ) => void,
       ) => {
         if (request.type === "EXTRACT_CONTENT") {
