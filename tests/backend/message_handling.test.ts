@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtractContentResult } from "../../src/backend/content_extractor";
+import type { ManualExecuteResult } from "../../src/types/messages";
 
 // ExtractContent モックの設定
 const mockExtractContent = vi.fn();
@@ -27,9 +28,7 @@ const mockChromeRuntime = {
 type MessageListener = (
   request: { type: string; url?: string },
   sender: chrome.runtime.MessageSender,
-  sendResponse: (
-    response: ExtractContentResult | { success: boolean; error?: string },
-  ) => void,
+  sendResponse: (response: ExtractContentResult | ManualExecuteResult) => void,
 ) => boolean | undefined;
 
 let messageListener: MessageListener | null = null;
@@ -73,6 +72,7 @@ describe("Message handling", () => {
   });
 
   it("EXTRACT_CONTENT メッセージでコンテンツ抽出を実行する", async () => {
+    vi.useFakeTimers();
     // 設定のモック
     mockChromeStorageLocal.get.mockResolvedValue({
       firecrawlApiKey: "fc-test-key",
@@ -106,7 +106,7 @@ describe("Message handling", () => {
       expect(result).toBe(true);
 
       // 非同期処理の完了を待つ
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.runAllTimersAsync();
 
       // extractContent が正しい引数で呼ばれることを確認
       expect(mockExtractContent).toHaveBeenCalledWith(
@@ -117,9 +117,11 @@ describe("Message handling", () => {
       // sendResponse が正しい結果で呼ばれることを確認
       expect(sendResponse).toHaveBeenCalledWith(mockResult);
     }
+    vi.useRealTimers();
   });
 
   it("Firecrawl API キーが未設定の場合はエラーを返す", async () => {
+    vi.useFakeTimers();
     // 設定のモック（API キーなし）
     mockChromeStorageLocal.get.mockResolvedValue({});
 
@@ -137,7 +139,7 @@ describe("Message handling", () => {
       );
 
       // 非同期処理の完了を待つ
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.runAllTimersAsync();
 
       // extractContent は呼ばれない
       expect(mockExtractContent).not.toHaveBeenCalled();
@@ -149,9 +151,11 @@ describe("Message handling", () => {
           "Firecrawl API キーが設定されていません。設定を保存してからお試しください。",
       });
     }
+    vi.useRealTimers();
   });
 
   it("extractContent でエラーが発生した場合はエラーを返す", async () => {
+    vi.useFakeTimers();
     // 設定のモック
     mockChromeStorageLocal.get.mockResolvedValue({
       firecrawlApiKey: "fc-test-key",
@@ -178,11 +182,12 @@ describe("Message handling", () => {
       );
 
       // 非同期処理の完了を待つ
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.runAllTimersAsync();
 
       // エラーレスポンスが返される
       expect(sendResponse).toHaveBeenCalledWith(mockError);
     }
+    vi.useRealTimers();
   });
 
   it("不明なメッセージタイプは無視する", () => {
@@ -208,6 +213,7 @@ describe("Message handling", () => {
   });
 
   it("MANUAL_EXECUTE メッセージで成功レスポンスを返す", async () => {
+    vi.useFakeTimers();
     const sendResponse = vi.fn();
     const request = { type: "MANUAL_EXECUTE" };
 
@@ -219,8 +225,9 @@ describe("Message handling", () => {
         sendResponse,
       );
       expect(result).toBe(true);
-      await new Promise((r) => setTimeout(r, 0));
+      await vi.runAllTimersAsync();
       expect(sendResponse).toHaveBeenCalledWith({ success: true });
     }
+    vi.useRealTimers();
   });
 });
