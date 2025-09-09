@@ -15,7 +15,7 @@ export default defineConfig({
       {
         test: {
           environment: "node",
-          include: ["tests/backend/**/*.test.ts"],
+          include: ["tests/backend/**/*.test.ts", "tests/common/**/*.test.ts"],
         },
       },
     ],

@@ -154,6 +154,7 @@ describe("chrome_storage", () => {
         daysUntilDelete: 40,
         maxEntriesPerRun: 3,
         alarmIntervalMinutes: 720,
+        systemPrompt: "",
       });
     });
 
@@ -206,13 +207,13 @@ describe("chrome_storage", () => {
 
     it("削除日数が無効な場合はエラーを返す", () => {
       expect(validateSettings({ daysUntilDelete: 0 })).toContain(
-        "削除までの日数は1-365の整数で入力してください",
+        "削除までの日数は-1または1-365の整数で入力してください",
       );
       expect(validateSettings({ daysUntilDelete: 366 })).toContain(
-        "削除までの日数は1-365の整数で入力してください",
+        "削除までの日数は-1または1-365の整数で入力してください",
       );
       expect(validateSettings({ daysUntilDelete: 2.5 })).toContain(
-        "削除までの日数は1-365の整数で入力してください",
+        "削除までの日数は-1または1-365の整数で入力してください",
       );
     });
 
@@ -225,28 +226,6 @@ describe("chrome_storage", () => {
       );
       expect(validateSettings({ maxEntriesPerRun: 1.5 })).toContain(
         "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
-      );
-    });
-
-    it("削除日数が既読化日数以下の場合はエラーを返す", () => {
-      const errors = validateSettings({
-        daysUntilRead: 60,
-        daysUntilDelete: 30,
-      });
-
-      expect(errors).toContain(
-        "削除までの日数は既読化までの日数より大きくしてください",
-      );
-    });
-
-    it("削除日数と既読化日数が同じ場合はエラーを返す", () => {
-      const errors = validateSettings({
-        daysUntilRead: 30,
-        daysUntilDelete: 30,
-      });
-
-      expect(errors).toContain(
-        "削除までの日数は既読化までの日数より大きくしてください",
       );
     });
 
@@ -286,6 +265,24 @@ describe("chrome_storage", () => {
       });
 
       expect(errors).toHaveLength(5);
+    });
+
+    it("削除日数が既読化日数より小さくても有効", () => {
+      const errors = validateSettings({
+        daysUntilRead: 30,
+        daysUntilDelete: 10,
+      });
+
+      expect(errors).toEqual([]);
+    });
+
+    it("削除日数と既読化日数が同じでも有効", () => {
+      const errors = validateSettings({
+        daysUntilRead: 30,
+        daysUntilDelete: 30,
+      });
+
+      expect(errors).toEqual([]);
     });
   });
 });
