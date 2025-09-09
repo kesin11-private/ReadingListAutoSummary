@@ -6,7 +6,6 @@ import {
 } from "../common/chrome_storage";
 import type {
   FrontendMessage,
-  ManualExecuteMessage,
   ManualExecuteResult,
   SlackTestResult,
 } from "../types/messages";
@@ -84,7 +83,7 @@ function initializeMessageHandlers(): void {
           return true; // Will respond asynchronously
         }
 
-        if ((request as ManualExecuteMessage).type === "MANUAL_EXECUTE") {
+        if (request.type === "MANUAL_EXECUTE") {
           handleManualExecuteMessage()
             .then((res) => sendResponse(res))
             .catch((error: unknown) => {
@@ -209,15 +208,8 @@ async function handleSlackTestMessage(
  * 手動実行メッセージハンドラー
  */
 async function handleManualExecuteMessage(): Promise<ManualExecuteResult> {
-  try {
-    await processReadingListEntries();
-    return { success: true };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  await processReadingListEntries();
+  return { success: true };
 }
 
 // Initialize message handlers
