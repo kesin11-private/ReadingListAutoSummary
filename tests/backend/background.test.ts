@@ -795,4 +795,37 @@ describe("processReadingListEntries", () => {
     // 削除処理は実行されない
     expect(mockChromeReadingList.removeEntry).not.toHaveBeenCalled();
   });
+
+  it("既読化と削除の日数が同じ場合、既読化したエントリを同じ実行で削除しない", async () => {
+    const settings = {
+      daysUntilRead: 1,
+      daysUntilDelete: 1,
+      maxEntriesPerRun: 3,
+    };
+
+    const entryToProcess = {
+      url: "https://example.com/to-be-read",
+      title: "処理対象の記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2日前
+      lastUpdateTime: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2日前
+    };
+
+    mockChromeStorageLocal.get.mockResolvedValue(settings);
+    mockChromeReadingList.query.mockResolvedValue([entryToProcess]);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
+
+    await processReadingListEntries();
+
+    // 既読化処理が1回呼ばれることを確認
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+      url: entryToProcess.url,
+      hasBeenRead: true,
+    });
+
+    // 削除処理が呼ばれないことを確認
+    expect(mockChromeReadingList.removeEntry).not.toHaveBeenCalled();
+  });
 });
