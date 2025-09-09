@@ -4,7 +4,11 @@ import {
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
-import type { FrontendMessage } from "../types/messages";
+import type {
+  FrontendMessage,
+  ManualExecuteResult,
+  SlackTestResult,
+} from "../types/messages";
 import { type ExtractContentResult, extractContent } from "./content_extractor";
 import { postToSlack } from "./post";
 import {
@@ -27,7 +31,11 @@ function initializeMessageHandlers(): void {
         request: FrontendMessage,
         _sender: chrome.runtime.MessageSender,
         sendResponse: (
-          response: ExtractContentResult | SummarizeResult,
+          response:
+            | ExtractContentResult
+            | SummarizeResult
+            | SlackTestResult
+            | ManualExecuteResult,
         ) => void,
       ) => {
         if (request.type === "EXTRACT_CONTENT") {
@@ -73,6 +81,19 @@ function initializeMessageHandlers(): void {
               });
             });
           return true; // Will respond asynchronously
+        }
+
+        if (request.type === "MANUAL_EXECUTE") {
+          handleManualExecuteMessage()
+            .then((res) => sendResponse(res))
+            .catch((error: unknown) => {
+              const result: ManualExecuteResult = {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              };
+              sendResponse(result);
+            });
+          return true; // async response
         }
 
         return false;
@@ -181,6 +202,14 @@ async function handleSlackTestMessage(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/**
+ * 手動実行メッセージハンドラー
+ */
+async function handleManualExecuteMessage(): Promise<ManualExecuteResult> {
+  await processReadingListEntries();
+  return { success: true };
 }
 
 // Initialize message handlers

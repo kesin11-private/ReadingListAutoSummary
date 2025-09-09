@@ -48,9 +48,25 @@ export interface SlackTestResult {
 }
 
 /**
+ * Message for manual execution trigger from options page
+ */
+export interface ManualExecuteMessage extends BaseMessage {
+  type: "MANUAL_EXECUTE";
+}
+
+/**
+ * Result for manual execution
+ */
+export interface ManualExecuteResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
  * Union type for all frontend messages
  */
 export type FrontendMessage =
   | ExtractContentMessage
   | SummarizeTestMessage
-  | SlackTestMessage;
+  | SlackTestMessage
+  | ManualExecuteMessage;
