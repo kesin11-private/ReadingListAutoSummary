@@ -4,6 +4,7 @@ import {
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../common/constants";
 import type {
   FrontendMessage,
   ManualExecuteResult,
@@ -119,7 +120,11 @@ async function handleExtractContentMessage(
       };
     }
 
-    return await extractContent(url, settings.firecrawlApiKey);
+    return await extractContent(
+      url,
+      settings.firecrawlApiKey,
+      settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
+    );
   } catch (error) {
     return {
       success: false,
@@ -287,6 +292,7 @@ async function processContentExtraction(
   const extractResult = await extractContent(
     entry.url,
     settings.firecrawlApiKey,
+    settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
   );
 
   if (!extractResult.success || !extractResult.content) {

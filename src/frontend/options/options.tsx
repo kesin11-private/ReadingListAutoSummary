@@ -10,6 +10,7 @@ import {
   saveSettings as saveSettingsToStorage,
   validateSettings,
 } from "../../common/chrome_storage";
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../../common/constants";
 import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
@@ -35,6 +36,8 @@ function App() {
         openaiModel: loadedSettings.openaiModel || "",
         slackWebhookUrl: loadedSettings.slackWebhookUrl || "",
         firecrawlApiKey: loadedSettings.firecrawlApiKey || "",
+        firecrawlBaseUrl:
+          loadedSettings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
         systemPrompt: loadedSettings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
       });
     } catch (error) {
@@ -52,8 +55,14 @@ function App() {
     setSaveStatus("idle");
     setSaveMessage("");
 
+    const sanitizedSettings: Settings = {
+      ...settings,
+      firecrawlBaseUrl:
+        settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL,
+    };
+
     // バリデーション
-    const validationErrors = validateSettings(settings);
+    const validationErrors = validateSettings(sanitizedSettings);
     if (validationErrors.length > 0) {
       setSaveStatus("error");
       setSaveMessage(
@@ -64,7 +73,8 @@ function App() {
     }
 
     try {
-      await saveSettingsToStorage(settings);
+      await saveSettingsToStorage(sanitizedSettings);
+      setSettings(sanitizedSettings);
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
       setTimeout(() => {
@@ -412,6 +422,31 @@ function App() {
             />
             <p class="text-xs text-gray-500 mt-1">
               Webページからのテキスト抽出に使用
+            </p>
+          </div>
+
+          <div>
+            <label
+              for="firecrawlBaseUrl"
+              class="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Firecrawl Base URL
+            </label>
+            <input
+              id="firecrawlBaseUrl"
+              type="url"
+              placeholder="https://api.firecrawl.dev"
+              value={settings.firecrawlBaseUrl}
+              onInput={(e) =>
+                handleInputChange(
+                  "firecrawlBaseUrl",
+                  (e.target as HTMLInputElement).value,
+                )
+              }
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+              セルフホスト環境では `http://localhost:3002` などに変更できます
             </p>
           </div>
         </section>

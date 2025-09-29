@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 
 // fetch APIのモック
 const mockFetch = vi.fn();
@@ -52,21 +53,79 @@ describe("extractContent", () => {
       content: mockContent,
       title: mockTitle,
     });
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.firecrawl.dev/v2/scrape",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer fc-test-key",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          url: "https://example.com",
-          formats: ["markdown"],
-          onlyMainContent: true,
-        }),
+    const expectedEndpoint = new URL(
+      "/v2/scrape",
+      DEFAULT_FIRECRAWL_BASE_URL,
+    ).toString();
+    expect(mockFetch).toHaveBeenCalledWith(expectedEndpoint, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer fc-test-key",
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        url: "https://example.com",
+        formats: ["markdown"],
+        onlyMainContent: true,
+      }),
+    });
+  });
+
+  it("カスタムBase URLが指定された場合に利用する", async () => {
+    const mockContent = "# テスト記事\n\nこれはテスト記事の内容です。";
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          markdown: mockContent,
+          metadata: { title: "テスト記事" },
+        },
+      }),
+    });
+
+    await extractContent(
+      "https://example.com",
+      "fc-test-key",
+      "http://localhost:3002",
     );
+
+    const customEndpoint = new URL(
+      "/v2/scrape",
+      "http://localhost:3002",
+    ).toString();
+    expect(mockFetch).toHaveBeenCalledWith(customEndpoint, expect.any(Object));
+  });
+
+  it("無効なBase URLの場合はデフォルトにフォールバックする", async () => {
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          markdown: "# テスト",
+          metadata: { title: "テスト" },
+        },
+      }),
+    });
+
+    await extractContent(
+      "https://example.com",
+      "fc-test-key",
+      "::invalid-url::",
+    );
+
+    const expectedEndpoint = new URL(
+      "/v2/scrape",
+      DEFAULT_FIRECRAWL_BASE_URL,
+    ).toString();
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      expectedEndpoint,
+      expect.any(Object),
+    );
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 
   it("抽出された本文が空の場合、エラーを返す", async () => {
