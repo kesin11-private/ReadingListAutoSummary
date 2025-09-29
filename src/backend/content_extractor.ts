@@ -1,3 +1,5 @@
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../common/constants";
+
 export interface ExtractContentResult {
   success: boolean;
   content?: string;
@@ -65,6 +67,7 @@ async function retryWithExponentialBackoff<T>(
 export async function extractContent(
   url: string,
   apiKey: string,
+  firecrawlBaseUrl: string = DEFAULT_FIRECRAWL_BASE_URL,
 ): Promise<ExtractContentResult> {
   if (!apiKey?.trim()) {
     const error = "Firecrawl API キーが設定されていません";
@@ -81,7 +84,21 @@ export async function extractContent(
     const result = await retryWithExponentialBackoff(async () => {
       console.log(`Firecrawl API呼び出し: ${url}`);
 
-      const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
+      const sanitizedBaseUrl =
+        firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
+      let endpoint: string;
+
+      try {
+        endpoint = new URL("/v2/scrape", sanitizedBaseUrl).toString();
+      } catch (error) {
+        console.warn(
+          `Firecrawl Base URLの解析に失敗したためデフォルトを使用します: ${sanitizedBaseUrl}`,
+          error,
+        );
+        endpoint = new URL("/v2/scrape", DEFAULT_FIRECRAWL_BASE_URL).toString();
+      }
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,

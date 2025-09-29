@@ -6,6 +6,7 @@ import {
   saveSettings,
   validateSettings,
 } from "../../src/common/chrome_storage";
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 
 // Chrome APIのモック
 const mockChromeStorage = {
@@ -45,6 +46,7 @@ describe("chrome_storage", () => {
         "openaiModel",
         "slackWebhookUrl",
         "firecrawlApiKey",
+        "firecrawlBaseUrl",
         "systemPrompt",
       ]);
     });
@@ -59,12 +61,26 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        firecrawlApiKey: "fc-test123",
+        firecrawlBaseUrl: "http://localhost:3002",
       };
       mockChromeStorage.local.get.mockResolvedValue(storedSettings);
 
       const result = await getSettings();
 
       expect(result).toEqual(storedSettings);
+    });
+
+    it("Firecrawl Base URLが存在しない場合は既定値を返す", async () => {
+      const storedSettings = {
+        daysUntilRead: 10,
+        daysUntilDelete: 20,
+      };
+      mockChromeStorage.local.get.mockResolvedValue(storedSettings);
+
+      const result = await getSettings();
+
+      expect(result.firecrawlBaseUrl).toBe(DEFAULT_FIRECRAWL_BASE_URL);
     });
 
     it("エラーが発生した場合はデフォルト設定を返す", async () => {
@@ -114,6 +130,7 @@ describe("chrome_storage", () => {
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
         firecrawlApiKey: "fc-test123",
+        firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
       };
 
@@ -129,6 +146,7 @@ describe("chrome_storage", () => {
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
         firecrawlApiKey: "fc-test123",
+        firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
       });
     });
@@ -144,6 +162,7 @@ describe("chrome_storage", () => {
         openaiModel: "",
         slackWebhookUrl: "",
         firecrawlApiKey: "",
+        firecrawlBaseUrl: "",
         systemPrompt: "",
       };
 
@@ -186,6 +205,7 @@ describe("chrome_storage", () => {
         alarmIntervalMinutes: 720,
         openaiEndpoint: "https://api.openai.com/v1",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        firecrawlBaseUrl: "https://api.firecrawl.dev",
       };
 
       const errors = validateSettings(settings);
@@ -252,6 +272,26 @@ describe("chrome_storage", () => {
       });
       expect(errors2).toContain(
         "Slack Webhook URLはSlackの正しいURLで入力してください",
+      );
+    });
+
+    it("無効なFirecrawl Base URLの場合はエラーを返す", () => {
+      const errors = validateSettings({
+        firecrawlBaseUrl: "not-a-url",
+      });
+
+      expect(errors).toContain(
+        "Firecrawl Base URLは有効なURLで入力してください",
+      );
+    });
+
+    it("Firecrawl Base URLがhttp/https以外の場合はエラーを返す", () => {
+      const errors = validateSettings({
+        firecrawlBaseUrl: "ftp://example.com",
+      });
+
+      expect(errors).toContain(
+        "Firecrawl Base URLはhttpまたはhttpsで指定してください",
       );
     });
 

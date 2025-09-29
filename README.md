@@ -30,6 +30,7 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
     - APIキー
     - モデル名
     - Slack Webhook URL
+    - Firecrawl Base URL（デフォルト: https://api.firecrawl.dev）
 
 - **ユーザーインターフェース**  
   - 基本的にUIは不要
@@ -75,6 +76,11 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
 - OpenAI SDK（OpenAI互換API対応）
 - Slack Webhook
 - chrome.storage.local（設定保存）
+
+## Firecrawlの利用
+
+- 既定のBase URLは `https://api.firecrawl.dev` です。オプション画面で Base URL を変更すれば、`http://localhost:3002` などセルフホストした Firecrawl サーバーにも接続できます。
+- セルフホスト環境では `Authorization` ヘッダーの値に任意の文字列を指定できますが、フォームには空でない値を入力してください。
 
 ## 今後の拡張予定
 

@@ -1,3 +1,5 @@
+import { DEFAULT_FIRECRAWL_BASE_URL } from "./constants";
+
 export interface Settings {
   daysUntilRead: number;
   daysUntilDelete: number;
@@ -8,6 +10,7 @@ export interface Settings {
   openaiModel?: string;
   slackWebhookUrl?: string;
   firecrawlApiKey?: string;
+  firecrawlBaseUrl?: string;
   systemPrompt?: string;
 }
 
@@ -37,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   daysUntilDelete: DELETION_DISABLED_VALUE,
   maxEntriesPerRun: 3,
   alarmIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
+  firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
 };
 
 /**
@@ -54,6 +58,7 @@ export async function getSettings(): Promise<Settings> {
       "openaiModel",
       "slackWebhookUrl",
       "firecrawlApiKey",
+      "firecrawlBaseUrl",
       "systemPrompt",
     ]);
 
@@ -70,6 +75,7 @@ export async function getSettings(): Promise<Settings> {
       openaiModel: result.openaiModel,
       slackWebhookUrl: result.slackWebhookUrl,
       firecrawlApiKey: result.firecrawlApiKey,
+      firecrawlBaseUrl: result.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
       systemPrompt: result.systemPrompt,
     };
   } catch (error) {
@@ -113,6 +119,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
     }
     if (settings.firecrawlApiKey) {
       settingsToSave.firecrawlApiKey = settings.firecrawlApiKey;
+    }
+    if (settings.firecrawlBaseUrl) {
+      settingsToSave.firecrawlBaseUrl = settings.firecrawlBaseUrl;
     }
     if (settings.systemPrompt !== undefined) {
       settingsToSave.systemPrompt = settings.systemPrompt;
@@ -194,6 +203,20 @@ export function validateSettings(settings: Partial<Settings>): string[] {
       }
     } catch {
       errors.push("Slack Webhook URLは有効なURLで入力してください");
+    }
+  }
+
+  if (
+    settings.firecrawlBaseUrl !== undefined &&
+    settings.firecrawlBaseUrl.trim() !== ""
+  ) {
+    try {
+      const url = new URL(settings.firecrawlBaseUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        errors.push("Firecrawl Base URLはhttpまたはhttpsで指定してください");
+      }
+    } catch {
+      errors.push("Firecrawl Base URLは有効なURLで入力してください");
     }
   }
 

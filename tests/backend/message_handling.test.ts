@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtractContentResult } from "../../src/backend/content_extractor";
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 import type { ManualExecuteResult } from "../../src/types/messages";
 
 // ExtractContent モックの設定
@@ -76,6 +77,7 @@ describe("Message handling", () => {
     // 設定のモック
     mockChromeStorageLocal.get.mockResolvedValue({
       firecrawlApiKey: "fc-test-key",
+      firecrawlBaseUrl: "http://localhost:3002",
     });
 
     // extractContent のモック
@@ -112,6 +114,7 @@ describe("Message handling", () => {
       expect(mockExtractContent).toHaveBeenCalledWith(
         "https://example.com",
         "fc-test-key",
+        "http://localhost:3002",
       );
 
       // sendResponse が正しい結果で呼ばれることを確認
@@ -159,6 +162,7 @@ describe("Message handling", () => {
     // 設定のモック
     mockChromeStorageLocal.get.mockResolvedValue({
       firecrawlApiKey: "fc-test-key",
+      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
 
     // extractContent のエラーモック

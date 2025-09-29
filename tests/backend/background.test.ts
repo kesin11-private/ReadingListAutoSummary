@@ -11,6 +11,7 @@ import {
   DELETION_DISABLED_VALUE,
   getSettings,
 } from "../../src/common/chrome_storage";
+import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 
 // content_extractor モジュールのモック
 vi.mock("../../src/backend/content_extractor", () => ({
@@ -77,6 +78,7 @@ describe("getSettings", () => {
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       alarmIntervalMinutes: 720,
+      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
     expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
       "daysUntilRead",
@@ -88,6 +90,7 @@ describe("getSettings", () => {
       "openaiModel",
       "slackWebhookUrl",
       "firecrawlApiKey",
+      "firecrawlBaseUrl",
       "systemPrompt",
     ]);
   });
@@ -103,6 +106,7 @@ describe("getSettings", () => {
       openaiModel: "gpt-3.5-turbo",
       slackWebhookUrl: "https://hooks.slack.com/test",
       firecrawlApiKey: "fc-test-key",
+      firecrawlBaseUrl: "http://localhost:3002",
       systemPrompt: "カスタムプロンプト",
     };
     mockChromeStorageLocal.get.mockResolvedValue(storedSettings);
@@ -122,6 +126,7 @@ describe("getSettings", () => {
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       alarmIntervalMinutes: 720,
+      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
   });
 });
@@ -300,6 +305,7 @@ describe("markAsReadAndNotify", () => {
     openaiModel: "gpt-4o-mini",
     slackWebhookUrl: "https://hooks.slack.com/test",
     firecrawlApiKey: "fc-test-key",
+    firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
   };
 
   it("エントリを正常に既読化", async () => {
@@ -339,6 +345,7 @@ describe("markAsReadAndNotify", () => {
     expect(mockExtractContent).toHaveBeenCalledWith(
       entry.url,
       incompleteSettings.firecrawlApiKey,
+      DEFAULT_FIRECRAWL_BASE_URL,
     );
     // 要約機能は呼ばれない
     expect(mockSummarizeContent).not.toHaveBeenCalled();
