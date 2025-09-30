@@ -113,9 +113,6 @@ pnpm check:ai         # Complete validation pipeline (type-check + lint + test +
 - **Avoid Optional Fields for Required Data**
   - Instead of `{ apiKey?: string, baseUrl?: string }`, use strict types like `{ apiKey: string, baseUrl: string }`
   - Push validation to the boundary (e.g., settings UI or API call site) rather than allowing undefined/null to propagate
-- **Use Type Aliases for Semantic Clarity**
-  - Example: `type FormattedSettingsForUi = Settings` marks data that has been sanitized/formatted for UI display
-  - Even if structurally identical to base type, semantic types document data flow and transformations
 - **Eliminate Error-Prone Fallback Logic**
   - Avoid silent fallbacks like `baseUrl || DEFAULT_BASE_URL` in deep call chains
   - Fail fast with explicit errors at configuration time rather than masking issues during runtime

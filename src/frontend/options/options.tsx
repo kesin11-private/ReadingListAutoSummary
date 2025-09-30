@@ -20,9 +20,7 @@ import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
 
-type FormattedSettingsForUi = Settings;
-
-function formatSettingsForUi(settings: Settings): FormattedSettingsForUi {
+function formatSettingsForUi(settings: Settings): Settings {
   return {
     ...settings,
     openaiEndpoint: settings.openaiEndpoint || "",
@@ -39,7 +37,7 @@ function formatSettingsForUi(settings: Settings): FormattedSettingsForUi {
 }
 
 function App() {
-  const [settings, setSettings] = useState<FormattedSettingsForUi>(
+  const [settings, setSettings] = useState<Settings>(
     formatSettingsForUi(DEFAULT_SETTINGS),
   );
   const [isLoading, setIsLoading] = useState(true);
@@ -69,8 +67,27 @@ function App() {
     setSaveStatus("idle");
     setSaveMessage("");
 
+    const sanitizedSettings: Settings = { ...settings };
+
+    const trimmedTavilyApiKey = settings.tavilyApiKey?.trim();
+    if (trimmedTavilyApiKey) {
+      sanitizedSettings.tavilyApiKey = trimmedTavilyApiKey;
+    } else {
+      delete sanitizedSettings.tavilyApiKey;
+    }
+
+    const trimmedFirecrawlApiKey = settings.firecrawlApiKey?.trim();
+    if (trimmedFirecrawlApiKey) {
+      sanitizedSettings.firecrawlApiKey = trimmedFirecrawlApiKey;
+    } else {
+      delete sanitizedSettings.firecrawlApiKey;
+    }
+
+    sanitizedSettings.firecrawlBaseUrl =
+      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
+
     // バリデーション
-    const validationErrors = validateSettings(settings);
+    const validationErrors = validateSettings(sanitizedSettings);
     if (validationErrors.length > 0) {
       setSaveStatus("error");
       setSaveMessage(
@@ -81,7 +98,8 @@ function App() {
     }
 
     try {
-      await saveSettingsToStorage(settings);
+      await saveSettingsToStorage(sanitizedSettings);
+      setSettings(formatSettingsForUi(sanitizedSettings));
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
       setTimeout(() => {
