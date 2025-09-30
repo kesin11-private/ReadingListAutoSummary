@@ -45,6 +45,8 @@ describe("chrome_storage", () => {
         "openaiApiKey",
         "openaiModel",
         "slackWebhookUrl",
+        "contentExtractorProvider",
+        "tavilyApiKey",
         "firecrawlApiKey",
         "firecrawlBaseUrl",
         "systemPrompt",
@@ -61,6 +63,7 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        contentExtractorProvider: "firecrawl",
         firecrawlApiKey: "fc-test123",
         firecrawlBaseUrl: "http://localhost:3002",
       };
@@ -129,6 +132,8 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        contentExtractorProvider: "tavily",
+        tavilyApiKey: "tv-test123",
         firecrawlApiKey: "fc-test123",
         firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
@@ -145,6 +150,8 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        contentExtractorProvider: "tavily",
+        tavilyApiKey: "tv-test123",
         firecrawlApiKey: "fc-test123",
         firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
@@ -197,6 +204,11 @@ describe("chrome_storage", () => {
   });
 
   describe("validateSettings", () => {
+    const baseProviderSettings: Partial<Settings> = {
+      contentExtractorProvider: "firecrawl",
+      firecrawlApiKey: "fc-test",
+    };
+
     it("有効な設定の場合は空配列を返す", () => {
       const settings: Settings = {
         daysUntilRead: 30,
@@ -205,6 +217,8 @@ describe("chrome_storage", () => {
         alarmIntervalMinutes: 720,
         openaiEndpoint: "https://api.openai.com/v1",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
+        contentExtractorProvider: "firecrawl",
+        firecrawlApiKey: "fc-test",
         firecrawlBaseUrl: "https://api.firecrawl.dev",
       };
 
@@ -214,43 +228,103 @@ describe("chrome_storage", () => {
     });
 
     it("既読化日数が無効な場合はエラーを返す", () => {
-      expect(validateSettings({ daysUntilRead: 0 })).toContain(
-        "既読化までの日数は1-365の整数で入力してください",
-      );
-      expect(validateSettings({ daysUntilRead: 366 })).toContain(
-        "既読化までの日数は1-365の整数で入力してください",
-      );
-      expect(validateSettings({ daysUntilRead: 1.5 })).toContain(
-        "既読化までの日数は1-365の整数で入力してください",
-      );
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          daysUntilRead: 0,
+        }),
+      ).toContain("既読化までの日数は1-365の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          daysUntilRead: 366,
+        }),
+      ).toContain("既読化までの日数は1-365の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          daysUntilRead: 1.5,
+        }),
+      ).toContain("既読化までの日数は1-365の整数で入力してください");
     });
 
     it("削除日数が無効な場合はエラーを返す", () => {
-      expect(validateSettings({ daysUntilDelete: 0 })).toContain(
-        "削除までの日数は-1または1-365の整数で入力してください",
-      );
-      expect(validateSettings({ daysUntilDelete: 366 })).toContain(
-        "削除までの日数は-1または1-365の整数で入力してください",
-      );
-      expect(validateSettings({ daysUntilDelete: 2.5 })).toContain(
-        "削除までの日数は-1または1-365の整数で入力してください",
-      );
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          daysUntilDelete: 0,
+        }),
+      ).toContain("削除までの日数は-1または1-365の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          daysUntilDelete: 366,
+        }),
+      ).toContain("削除までの日数は-1または1-365の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          daysUntilDelete: 2.5,
+        }),
+      ).toContain("削除までの日数は-1または1-365の整数で入力してください");
     });
 
     it("最大エントリ数が無効な場合はエラーを返す", () => {
-      expect(validateSettings({ maxEntriesPerRun: 0 })).toContain(
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          maxEntriesPerRun: 0,
+        }),
+      ).toContain(
         "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
       );
-      expect(validateSettings({ maxEntriesPerRun: 101 })).toContain(
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          maxEntriesPerRun: 101,
+        }),
+      ).toContain(
         "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
       );
-      expect(validateSettings({ maxEntriesPerRun: 1.5 })).toContain(
+      expect(
+        validateSettings({
+          ...baseProviderSettings,
+          maxEntriesPerRun: 1.5,
+        }),
+      ).toContain(
         "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
       );
+    });
+
+    it("TavilyプロバイダーでAPIキーが未設定の場合はエラーを返す", () => {
+      const errors = validateSettings({
+        contentExtractorProvider: "tavily",
+      });
+
+      expect(errors).toContain("Tavily APIキーを入力してください");
+    });
+
+    it("FirecrawlプロバイダーでAPIキーが未設定の場合はエラーを返す", () => {
+      const errors = validateSettings({
+        contentExtractorProvider: "firecrawl",
+      });
+
+      expect(errors).toContain("Firecrawl APIキーを入力してください");
+    });
+
+    it("不正なプロバイダー値の場合はエラーを返す", () => {
+      const errors = validateSettings({
+        // @ts-expect-error テスト用に不正な値を渡す
+        contentExtractorProvider: "invalid",
+        firecrawlApiKey: "fc-test",
+      });
+
+      expect(errors).toContain("コンテンツ抽出プロバイダーの選択が不正です");
     });
 
     it("無効なOpenAI APIエンドポイントの場合はエラーを返す", () => {
       const errors = validateSettings({
+        ...baseProviderSettings,
         openaiEndpoint: "invalid-url",
       });
 
@@ -261,6 +335,7 @@ describe("chrome_storage", () => {
 
     it("無効なSlack Webhook URLの場合はエラーを返す", () => {
       const errors1 = validateSettings({
+        ...baseProviderSettings,
         slackWebhookUrl: "invalid-url",
       });
       expect(errors1).toContain(
@@ -268,6 +343,7 @@ describe("chrome_storage", () => {
       );
 
       const errors2 = validateSettings({
+        ...baseProviderSettings,
         slackWebhookUrl: "https://example.com/webhook",
       });
       expect(errors2).toContain(
@@ -277,6 +353,7 @@ describe("chrome_storage", () => {
 
     it("無効なFirecrawl Base URLの場合はエラーを返す", () => {
       const errors = validateSettings({
+        ...baseProviderSettings,
         firecrawlBaseUrl: "not-a-url",
       });
 
@@ -287,6 +364,7 @@ describe("chrome_storage", () => {
 
     it("Firecrawl Base URLがhttp/https以外の場合はエラーを返す", () => {
       const errors = validateSettings({
+        ...baseProviderSettings,
         firecrawlBaseUrl: "ftp://example.com",
       });
 
@@ -297,6 +375,7 @@ describe("chrome_storage", () => {
 
     it("複数のエラーがある場合は全て返す", () => {
       const errors = validateSettings({
+        ...baseProviderSettings,
         daysUntilRead: 0,
         daysUntilDelete: 366,
         alarmIntervalMinutes: 0,
@@ -309,6 +388,7 @@ describe("chrome_storage", () => {
 
     it("削除日数が既読化日数より小さくても有効", () => {
       const errors = validateSettings({
+        ...baseProviderSettings,
         daysUntilRead: 30,
         daysUntilDelete: 10,
       });
@@ -318,6 +398,7 @@ describe("chrome_storage", () => {
 
     it("削除日数と既読化日数が同じでも有効", () => {
       const errors = validateSettings({
+        ...baseProviderSettings,
         daysUntilRead: 30,
         daysUntilDelete: 30,
       });

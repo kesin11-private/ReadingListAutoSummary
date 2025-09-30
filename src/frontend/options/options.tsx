@@ -10,10 +10,31 @@ import {
   saveSettings as saveSettingsToStorage,
   validateSettings,
 } from "../../common/chrome_storage";
-import { DEFAULT_FIRECRAWL_BASE_URL } from "../../common/constants";
+import {
+  CONTENT_EXTRACTOR_PROVIDERS,
+  type ContentExtractorProvider,
+  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
+  DEFAULT_FIRECRAWL_BASE_URL,
+} from "../../common/constants";
 import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
+
+function formatSettingsForUi(settings: Settings): Settings {
+  return {
+    ...settings,
+    openaiEndpoint: settings.openaiEndpoint || "",
+    openaiApiKey: settings.openaiApiKey || "",
+    openaiModel: settings.openaiModel || "",
+    slackWebhookUrl: settings.slackWebhookUrl || "",
+    contentExtractorProvider:
+      settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
+    tavilyApiKey: settings.tavilyApiKey || "",
+    firecrawlApiKey: settings.firecrawlApiKey || "",
+    firecrawlBaseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
+    systemPrompt: settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+  };
+}
 
 function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -28,18 +49,7 @@ function App() {
   const loadSettings = async () => {
     try {
       const loadedSettings = await getSettings();
-      setSettings({
-        ...loadedSettings,
-        // 空文字列の場合は表示用に空文字列を設定
-        openaiEndpoint: loadedSettings.openaiEndpoint || "",
-        openaiApiKey: loadedSettings.openaiApiKey || "",
-        openaiModel: loadedSettings.openaiModel || "",
-        slackWebhookUrl: loadedSettings.slackWebhookUrl || "",
-        firecrawlApiKey: loadedSettings.firecrawlApiKey || "",
-        firecrawlBaseUrl:
-          loadedSettings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
-        systemPrompt: loadedSettings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
-      });
+      setSettings(formatSettingsForUi(loadedSettings));
     } catch (error) {
       console.error("設定読み込みエラー:", error);
       setSaveStatus("error");
@@ -55,11 +65,24 @@ function App() {
     setSaveStatus("idle");
     setSaveMessage("");
 
-    const sanitizedSettings: Settings = {
-      ...settings,
-      firecrawlBaseUrl:
-        settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL,
-    };
+    const sanitizedSettings: Settings = { ...settings };
+
+    const trimmedTavilyApiKey = settings.tavilyApiKey?.trim();
+    if (trimmedTavilyApiKey) {
+      sanitizedSettings.tavilyApiKey = trimmedTavilyApiKey;
+    } else {
+      delete sanitizedSettings.tavilyApiKey;
+    }
+
+    const trimmedFirecrawlApiKey = settings.firecrawlApiKey?.trim();
+    if (trimmedFirecrawlApiKey) {
+      sanitizedSettings.firecrawlApiKey = trimmedFirecrawlApiKey;
+    } else {
+      delete sanitizedSettings.firecrawlApiKey;
+    }
+
+    sanitizedSettings.firecrawlBaseUrl =
+      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
 
     // バリデーション
     const validationErrors = validateSettings(sanitizedSettings);
@@ -74,7 +97,7 @@ function App() {
 
     try {
       await saveSettingsToStorage(sanitizedSettings);
-      setSettings(sanitizedSettings);
+      setSettings(formatSettingsForUi(sanitizedSettings));
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
       setTimeout(() => {
@@ -144,6 +167,9 @@ function App() {
       </main>
     );
   }
+
+  const selectedProvider: ContentExtractorProvider =
+    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
 
   return (
     <main class="p-6 max-w-2xl mx-auto">
@@ -396,63 +422,122 @@ function App() {
           </div>
         </section>
 
-        {/* Firecrawl設定 */}
+        {/* コンテンツ抽出設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
-          <h2 class="text-lg font-semibold mb-4">Firecrawl設定</h2>
+          <h2 class="text-lg font-semibold mb-4">コンテンツ抽出設定</h2>
 
-          <div>
-            <label
-              for="firecrawlApiKey"
-              class="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Firecrawl API キー
-            </label>
-            <input
-              id="firecrawlApiKey"
-              type="password"
-              placeholder="fc-..."
-              value={settings.firecrawlApiKey}
-              onInput={(e) =>
-                handleInputChange(
-                  "firecrawlApiKey",
-                  (e.target as HTMLInputElement).value,
-                )
-              }
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p class="text-xs text-gray-500 mt-1">
-              Webページからのテキスト抽出に使用
-            </p>
-          </div>
+          <div class="grid gap-4">
+            <div>
+              <label
+                for="contentExtractorProvider"
+                class="block text-sm font-medium text-gray-700 mb-1"
+              >
+                コンテンツ抽出プロバイダー
+              </label>
+              <select
+                id="contentExtractorProvider"
+                value={selectedProvider}
+                onChange={(e) =>
+                  handleInputChange(
+                    "contentExtractorProvider",
+                    (e.target as HTMLSelectElement)
+                      .value as ContentExtractorProvider,
+                  )
+                }
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {CONTENT_EXTRACTOR_PROVIDERS.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {provider === "tavily" ? "Tavily" : "Firecrawl"}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label
-              for="firecrawlBaseUrl"
-              class="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Firecrawl Base URL
-            </label>
-            <input
-              id="firecrawlBaseUrl"
-              type="url"
-              placeholder="https://api.firecrawl.dev"
-              value={settings.firecrawlBaseUrl}
-              onInput={(e) =>
-                handleInputChange(
-                  "firecrawlBaseUrl",
-                  (e.target as HTMLInputElement).value,
-                )
-              }
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p class="text-xs text-gray-500 mt-1">
-              セルフホスト環境では `http://localhost:3002` などに変更できます
-            </p>
+            {selectedProvider === "tavily" ? (
+              <div>
+                <label
+                  for="tavilyApiKey"
+                  class="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Tavily API キー
+                </label>
+                <input
+                  id="tavilyApiKey"
+                  type="password"
+                  placeholder="tvly-..."
+                  value={settings.tavilyApiKey || ""}
+                  onInput={(e) =>
+                    handleInputChange(
+                      "tavilyApiKey",
+                      (e.target as HTMLInputElement).value,
+                    )
+                  }
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                  Tavily Extract APIで本文抽出を行います
+                </p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label
+                    for="firecrawlApiKey"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Firecrawl API キー
+                  </label>
+                  <input
+                    id="firecrawlApiKey"
+                    type="password"
+                    placeholder="fc-..."
+                    value={settings.firecrawlApiKey || ""}
+                    onInput={(e) =>
+                      handleInputChange(
+                        "firecrawlApiKey",
+                        (e.target as HTMLInputElement).value,
+                      )
+                    }
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">
+                    Webページからのテキスト抽出に使用します
+                  </p>
+                </div>
+
+                <div>
+                  <label
+                    for="firecrawlBaseUrl"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Firecrawl Base URL
+                  </label>
+                  <input
+                    id="firecrawlBaseUrl"
+                    type="url"
+                    placeholder="https://api.firecrawl.dev"
+                    value={settings.firecrawlBaseUrl}
+                    onInput={(e) =>
+                      handleInputChange(
+                        "firecrawlBaseUrl",
+                        (e.target as HTMLInputElement).value,
+                      )
+                    }
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">
+                    セルフホスト環境では `http://localhost:3002`
+                    などに変更できます
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </section>
 
         {/* コンテンツ抽出テスト */}
-        <ContentExtractorTest />
+        <ContentExtractorTest provider={selectedProvider} />
 
         {/* Slack通知設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">

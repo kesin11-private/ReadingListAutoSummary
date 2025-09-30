@@ -1,4 +1,9 @@
-import { DEFAULT_FIRECRAWL_BASE_URL } from "./constants";
+import {
+  CONTENT_EXTRACTOR_PROVIDERS,
+  type ContentExtractorProvider,
+  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
+  DEFAULT_FIRECRAWL_BASE_URL,
+} from "./constants";
 
 export interface Settings {
   daysUntilRead: number;
@@ -9,6 +14,8 @@ export interface Settings {
   openaiApiKey?: string;
   openaiModel?: string;
   slackWebhookUrl?: string;
+  contentExtractorProvider?: ContentExtractorProvider;
+  tavilyApiKey?: string;
   firecrawlApiKey?: string;
   firecrawlBaseUrl?: string;
   systemPrompt?: string;
@@ -40,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   daysUntilDelete: DELETION_DISABLED_VALUE,
   maxEntriesPerRun: 3,
   alarmIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
+  contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
   firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
 };
 
@@ -57,10 +65,23 @@ export async function getSettings(): Promise<Settings> {
       "openaiApiKey",
       "openaiModel",
       "slackWebhookUrl",
+      "contentExtractorProvider",
+      "tavilyApiKey",
       "firecrawlApiKey",
       "firecrawlBaseUrl",
       "systemPrompt",
     ]);
+
+    const storedProvider = result.contentExtractorProvider;
+    const hasFirecrawlConfig = Boolean(
+      result.firecrawlApiKey?.trim() || result.firecrawlBaseUrl?.trim(),
+    );
+    const provider: ContentExtractorProvider =
+      storedProvider && CONTENT_EXTRACTOR_PROVIDERS.includes(storedProvider)
+        ? storedProvider
+        : hasFirecrawlConfig
+          ? "firecrawl"
+          : DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
 
     return {
       daysUntilRead: result.daysUntilRead ?? DEFAULT_SETTINGS.daysUntilRead,
@@ -74,6 +95,8 @@ export async function getSettings(): Promise<Settings> {
       openaiApiKey: result.openaiApiKey,
       openaiModel: result.openaiModel,
       slackWebhookUrl: result.slackWebhookUrl,
+      contentExtractorProvider: provider,
+      tavilyApiKey: result.tavilyApiKey,
       firecrawlApiKey: result.firecrawlApiKey,
       firecrawlBaseUrl: result.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
       systemPrompt: result.systemPrompt,
@@ -116,6 +139,13 @@ export async function saveSettings(settings: Settings): Promise<void> {
     }
     if (settings.slackWebhookUrl) {
       settingsToSave.slackWebhookUrl = settings.slackWebhookUrl;
+    }
+    if (settings.contentExtractorProvider) {
+      settingsToSave.contentExtractorProvider =
+        settings.contentExtractorProvider;
+    }
+    if (settings.tavilyApiKey) {
+      settingsToSave.tavilyApiKey = settings.tavilyApiKey;
     }
     if (settings.firecrawlApiKey) {
       settingsToSave.firecrawlApiKey = settings.firecrawlApiKey;
@@ -203,6 +233,27 @@ export function validateSettings(settings: Partial<Settings>): string[] {
       }
     } catch {
       errors.push("Slack Webhook URLは有効なURLで入力してください");
+    }
+  }
+
+  const provider = settings.contentExtractorProvider;
+  if (provider !== undefined) {
+    if (!CONTENT_EXTRACTOR_PROVIDERS.includes(provider)) {
+      errors.push("コンテンツ抽出プロバイダーの選択が不正です");
+    }
+  }
+
+  const effectiveProvider = provider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
+
+  if (effectiveProvider === "tavily") {
+    if (!settings.tavilyApiKey?.trim()) {
+      errors.push("Tavily APIキーを入力してください");
+    }
+  }
+
+  if (effectiveProvider === "firecrawl") {
+    if (!settings.firecrawlApiKey?.trim()) {
+      errors.push("Firecrawl APIキーを入力してください");
     }
   }
 
