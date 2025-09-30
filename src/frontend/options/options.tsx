@@ -87,7 +87,8 @@ function App() {
       settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
 
     // バリデーション
-    const validationErrors = validateSettings(sanitizedSettings);
+    const { errors: validationErrors, validatedSettings } =
+      validateSettings(sanitizedSettings);
     if (validationErrors.length > 0) {
       setSaveStatus("error");
       setSaveMessage(
@@ -97,8 +98,15 @@ function App() {
       return;
     }
 
+    if (!validatedSettings) {
+      setSaveStatus("error");
+      setSaveMessage("設定の検証に失敗しました");
+      setIsSaving(false);
+      return;
+    }
+
     try {
-      await saveSettingsToStorage(sanitizedSettings);
+      await saveSettingsToStorage(validatedSettings);
       setSettings(formatSettingsForUi(sanitizedSettings));
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");

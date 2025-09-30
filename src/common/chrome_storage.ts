@@ -21,6 +21,8 @@ export interface Settings {
   systemPrompt?: string;
 }
 
+export type ValidatedSettings = Settings & { readonly validated: true };
+
 // 実行間隔（分）のデフォルト値
 export const DEFAULT_INTERVAL_MINUTES = 720;
 
@@ -110,7 +112,7 @@ export async function getSettings(): Promise<Settings> {
 /**
  * chrome.storage.localに設定を保存
  */
-export async function saveSettings(settings: Settings): Promise<void> {
+export async function saveSettings(settings: ValidatedSettings): Promise<void> {
   try {
     const settingsToSave: Record<string, string | number> = {
       daysUntilRead: settings.daysUntilRead,
@@ -167,7 +169,10 @@ export async function saveSettings(settings: Settings): Promise<void> {
 /**
  * 設定の妥当性チェック
  */
-export function validateSettings(settings: Partial<Settings>): string[] {
+export function validateSettings(settings: Partial<Settings>): {
+  errors: string[];
+  validatedSettings?: ValidatedSettings;
+} {
   const errors: string[] = [];
 
   if (settings.daysUntilRead !== undefined) {
@@ -271,5 +276,12 @@ export function validateSettings(settings: Partial<Settings>): string[] {
     }
   }
 
-  return errors;
+  if (errors.length > 0) {
+    return { errors };
+  }
+
+  return {
+    errors: [],
+    validatedSettings: { ...settings, validated: true } as ValidatedSettings,
+  };
 }
