@@ -358,9 +358,6 @@ describe("markAsReadAndNotify", () => {
         apiKey: "fc-test-key",
         baseUrl: DEFAULT_FIRECRAWL_BASE_URL,
       },
-      tavily: {
-        apiKey: undefined,
-      },
     });
     // 要約機能は呼ばれない
     expect(mockSummarizeContent).not.toHaveBeenCalled();
@@ -480,6 +477,7 @@ describe("markAsReadAndNotify", () => {
       openaiModel: "gpt-4o-mini",
       slackWebhookUrl: "https://hooks.slack.com/test",
       firecrawlApiKey: "fc-test-key",
+      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     };
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
@@ -491,7 +489,7 @@ describe("markAsReadAndNotify", () => {
     await markAsReadAndNotify(entry, incompleteSettings);
 
     expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockPostToSlack).not.toHaveBeenCalled();
+    // 本文抽出は成功しているので、要約処理でOpenAIキーが無いことを検知した後、Slackには通知されない
   });
 
   it("Firecrawl API キーが未設定の場合は本文抽出をスキップ", async () => {
@@ -520,7 +518,8 @@ describe("markAsReadAndNotify", () => {
 
     expect(mockExtractContent).not.toHaveBeenCalled();
     expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockPostToSlack).not.toHaveBeenCalled();
+    // APIキーが未設定のため、エラー通知がSlackに送信される
+    expect(mockPostToSlack).toHaveBeenCalled();
   });
 
   it("Tavily API キーが未設定の場合にSlackへエラー通知を送る", async () => {

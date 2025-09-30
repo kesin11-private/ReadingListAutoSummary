@@ -20,7 +20,9 @@ import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
 
-function formatSettingsForUi(settings: Settings): Settings {
+type FormattedSettingsForUi = Settings;
+
+function formatSettingsForUi(settings: Settings): FormattedSettingsForUi {
   return {
     ...settings,
     openaiEndpoint: settings.openaiEndpoint || "",
@@ -37,7 +39,9 @@ function formatSettingsForUi(settings: Settings): Settings {
 }
 
 function App() {
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<FormattedSettingsForUi>(
+    formatSettingsForUi(DEFAULT_SETTINGS),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -65,27 +69,8 @@ function App() {
     setSaveStatus("idle");
     setSaveMessage("");
 
-    const sanitizedSettings: Settings = { ...settings };
-
-    const trimmedTavilyApiKey = settings.tavilyApiKey?.trim();
-    if (trimmedTavilyApiKey) {
-      sanitizedSettings.tavilyApiKey = trimmedTavilyApiKey;
-    } else {
-      delete sanitizedSettings.tavilyApiKey;
-    }
-
-    const trimmedFirecrawlApiKey = settings.firecrawlApiKey?.trim();
-    if (trimmedFirecrawlApiKey) {
-      sanitizedSettings.firecrawlApiKey = trimmedFirecrawlApiKey;
-    } else {
-      delete sanitizedSettings.firecrawlApiKey;
-    }
-
-    sanitizedSettings.firecrawlBaseUrl =
-      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
-
     // バリデーション
-    const validationErrors = validateSettings(sanitizedSettings);
+    const validationErrors = validateSettings(settings);
     if (validationErrors.length > 0) {
       setSaveStatus("error");
       setSaveMessage(
@@ -96,8 +81,7 @@ function App() {
     }
 
     try {
-      await saveSettingsToStorage(sanitizedSettings);
-      setSettings(formatSettingsForUi(sanitizedSettings));
+      await saveSettingsToStorage(settings);
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
       setTimeout(() => {

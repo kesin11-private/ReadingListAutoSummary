@@ -18,8 +18,6 @@ import {
   type ExtractContentConfig,
   type ExtractContentResult,
   extractContent,
-  type FirecrawlConfig,
-  type TavilyConfig,
 } from "./content_extractor";
 import { postToSlack } from "./post";
 import {
@@ -312,7 +310,7 @@ async function processContentExtraction(
     buildExtractorConfig(settings),
   );
 
-  if (!extractResult.success || !extractResult.content) {
+  if (!extractResult.success) {
     console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
     await notifyExtractionError(entry, settings, provider, extractResult.error);
     return;
@@ -408,22 +406,23 @@ function resolveContentExtractorProvider(
 }
 
 function buildExtractorConfig(settings: Settings): ExtractContentConfig {
-  const firecrawlOptions: FirecrawlConfig = {
-    baseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
-  };
-  if (settings.firecrawlApiKey !== undefined) {
-    firecrawlOptions.apiKey = settings.firecrawlApiKey;
-  }
+  const provider = resolveContentExtractorProvider(settings);
 
-  const tavilyOptions: TavilyConfig = {};
-  if (settings.tavilyApiKey !== undefined) {
-    tavilyOptions.apiKey = settings.tavilyApiKey;
+  if (provider === "firecrawl") {
+    return {
+      provider: "firecrawl",
+      firecrawl: {
+        apiKey: settings.firecrawlApiKey || "",
+        baseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
+      },
+    };
   }
 
   return {
-    provider: resolveContentExtractorProvider(settings),
-    firecrawl: firecrawlOptions,
-    tavily: tavilyOptions,
+    provider: "tavily",
+    tavily: {
+      apiKey: settings.tavilyApiKey || "",
+    },
   };
 }
 

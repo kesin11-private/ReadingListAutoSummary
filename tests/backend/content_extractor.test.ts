@@ -35,17 +35,24 @@ describe("extractContent", () => {
     vi.useRealTimers();
   });
 
-  it("Firecrawl: APIキーが未設定の場合はエラーを返す", async () => {
-    const result = await extractContent("https://example.com", {
-      provider: "firecrawl",
-      firecrawl: { apiKey: "" },
+  it("Firecrawl: APIキーが空の場合はAPI呼び出しに失敗する", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
     });
 
-    expect(result).toEqual({
-      success: false,
-      error: "Firecrawl API キーが設定されていません",
+    const extractPromise = extractContent("https://example.com", {
+      provider: "firecrawl",
+      firecrawl: { apiKey: "", baseUrl: "https://api.firecrawl.dev" },
     });
-    expect(mockFetch).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    const result = await extractPromise;
+
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
+    expect(result.error).toContain("Firecrawl API error");
   });
 
   it("Firecrawl: 正常に本文を抽出する", async () => {
@@ -115,37 +122,22 @@ describe("extractContent", () => {
     expect(mockFetch).toHaveBeenCalledWith(customEndpoint, expect.any(Object));
   });
 
-  it("Firecrawl: 無効なBase URLの場合はデフォルトにフォールバックする", async () => {
-    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        success: true,
-        data: {
-          markdown: "# テスト",
-          metadata: { title: "テスト" },
-        },
-      }),
-    });
-
-    await extractContent("https://example.com", {
+  it("Firecrawl: 無効なBase URLの場合はエラーを返す", async () => {
+    const extractPromise = extractContent("https://example.com", {
       provider: "firecrawl",
       firecrawl: {
         apiKey: "fc-test-key",
         baseUrl: "::invalid-url::",
       },
     });
+    await vi.runAllTimersAsync();
+    const result = await extractPromise;
 
-    const expectedEndpoint = new URL(
-      "/v2/scrape",
-      DEFAULT_FIRECRAWL_BASE_URL,
-    ).toString();
-    expect(mockFetch).toHaveBeenLastCalledWith(
-      expectedEndpoint,
-      expect.any(Object),
-    );
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
+    expect(result.error).toContain("Invalid URL");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("Firecrawl: 抽出結果が空の場合はリトライ後にエラーを返す", async () => {
@@ -166,7 +158,9 @@ describe("extractContent", () => {
     await vi.runAllTimersAsync();
     const result = await extractPromise;
 
-    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
     expect(result.error).toBe("抽出された本文が空です");
   });
 
@@ -201,17 +195,24 @@ describe("extractContent", () => {
     });
   });
 
-  it("Tavily: APIキーが未設定の場合はエラーを返す", async () => {
-    const result = await extractContent("https://example.com", {
+  it("Tavily: APIキーが空の場合はAPI呼び出しに失敗する", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+    });
+
+    const extractPromise = extractContent("https://example.com", {
       provider: "tavily",
       tavily: { apiKey: "" },
     });
+    await vi.runAllTimersAsync();
+    const result = await extractPromise;
 
-    expect(result).toEqual({
-      success: false,
-      error: "Tavily API キーが設定されていません",
-    });
-    expect(mockFetch).not.toHaveBeenCalled();
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
+    expect(result.error).toContain("Tavily API error");
   });
 
   it("Tavily: 正常に本文を抽出する", async () => {
@@ -274,7 +275,9 @@ describe("extractContent", () => {
     await vi.runAllTimersAsync();
     const result = await extractPromise;
 
-    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
     expect(result.error).toBe("Rate limited");
   });
 
@@ -289,7 +292,9 @@ describe("extractContent", () => {
     await vi.runAllTimersAsync();
     const result = await extractPromise;
 
-    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
     expect(result.error).toBe("Tavily API error: 429 Too Many Requests");
   });
 });

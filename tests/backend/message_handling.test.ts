@@ -118,9 +118,6 @@ describe("Message handling", () => {
           apiKey: "fc-test-key",
           baseUrl: "http://localhost:3002",
         },
-        tavily: {
-          apiKey: undefined,
-        },
       });
 
       // sendResponse が正しい結果で呼ばれることを確認
