@@ -76,6 +76,7 @@ describe("Message handling", () => {
     vi.useFakeTimers();
     // 設定のモック
     mockChromeStorageLocal.get.mockResolvedValue({
+      contentExtractorProvider: "firecrawl" as const,
       firecrawlApiKey: "fc-test-key",
       firecrawlBaseUrl: "http://localhost:3002",
     });
@@ -111,11 +112,13 @@ describe("Message handling", () => {
       await vi.runAllTimersAsync();
 
       // extractContent が正しい引数で呼ばれることを確認
-      expect(mockExtractContent).toHaveBeenCalledWith(
-        "https://example.com",
-        "fc-test-key",
-        "http://localhost:3002",
-      );
+      expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+        provider: "firecrawl",
+        firecrawl: {
+          apiKey: "fc-test-key",
+          baseUrl: "http://localhost:3002",
+        },
+      });
 
       // sendResponse が正しい結果で呼ばれることを確認
       expect(sendResponse).toHaveBeenCalledWith(mockResult);
@@ -125,8 +128,11 @@ describe("Message handling", () => {
 
   it("Firecrawl API キーが未設定の場合はエラーを返す", async () => {
     vi.useFakeTimers();
-    // 設定のモック（API キーなし）
-    mockChromeStorageLocal.get.mockResolvedValue({});
+    // 設定のモック（Firecrawl選択だがAPI キーなし）
+    mockChromeStorageLocal.get.mockResolvedValue({
+      contentExtractorProvider: "firecrawl" as const,
+      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
+    });
 
     const sendResponse = vi.fn();
     const request = {
@@ -157,10 +163,40 @@ describe("Message handling", () => {
     vi.useRealTimers();
   });
 
+  it("Tavily API キーが未設定の場合はエラーを返す", async () => {
+    vi.useFakeTimers();
+    mockChromeStorageLocal.get.mockResolvedValue({});
+
+    const sendResponse = vi.fn();
+    const request = {
+      type: "EXTRACT_CONTENT",
+      url: "https://example.com",
+    };
+
+    if (messageListener) {
+      messageListener(
+        request,
+        {} as chrome.runtime.MessageSender,
+        sendResponse,
+      );
+
+      await vi.runAllTimersAsync();
+
+      expect(mockExtractContent).not.toHaveBeenCalled();
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error:
+          "Tavily API キーが設定されていません。設定を保存してからお試しください。",
+      });
+    }
+    vi.useRealTimers();
+  });
+
   it("extractContent でエラーが発生した場合はエラーを返す", async () => {
     vi.useFakeTimers();
     // 設定のモック
     mockChromeStorageLocal.get.mockResolvedValue({
+      contentExtractorProvider: "firecrawl" as const,
       firecrawlApiKey: "fc-test-key",
       firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });

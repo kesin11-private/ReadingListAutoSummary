@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import type { ExtractContentResult } from "../../backend/content_extractor";
 import type { SummarizeResult } from "../../backend/summarizer";
+import type { ContentExtractorProvider } from "../../common/constants";
 import type {
   ExtractContentMessage,
   SlackTestMessage,
@@ -55,7 +56,11 @@ function isSlackTestResult(obj: unknown): obj is SlackTestResult {
   );
 }
 
-export function ContentExtractorTest() {
+interface ContentExtractorTestProps {
+  provider: ContentExtractorProvider;
+}
+
+export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
   const [url, setUrl] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<ExtractContentResult | null>(null);
@@ -83,7 +88,9 @@ export function ContentExtractorTest() {
       }
 
       // 要約結果をSlackメッセージ形式に変換
-      const title = result?.title || new URL(url.trim()).hostname;
+      const title =
+        (result?.success === true ? result.title : undefined) ||
+        new URL(url.trim()).hostname;
       const modelName = summarizeResult.modelName || "Unknown Model";
 
       const message: SlackTestMessage = {
@@ -196,7 +203,12 @@ export function ContentExtractorTest() {
 
   return (
     <section class="bg-gray-50 p-4 rounded-lg">
-      <h3 class="text-md font-semibold mb-4">コンテンツ抽出テスト</h3>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-md font-semibold">コンテンツ抽出テスト</h3>
+        <span class="text-xs font-medium text-gray-600 border border-gray-300 rounded px-2 py-1">
+          現在のプロバイダー: {provider === "tavily" ? "Tavily" : "Firecrawl"}
+        </span>
+      </div>
 
       <div class="space-y-4">
         <div>

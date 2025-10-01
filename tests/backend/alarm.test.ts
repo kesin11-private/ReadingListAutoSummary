@@ -28,7 +28,10 @@ describe("alarm.setupAlarm", () => {
         daysUntilRead: 30,
         daysUntilDelete: -1,
       }),
-      validateSettings: (_s: unknown) => [],
+      validateSettings: (_s: unknown) => ({
+        errors: [],
+        validatedSettings: { validated: true },
+      }),
       DEFAULT_INTERVAL_MINUTES: 720,
     }));
 
@@ -55,7 +58,10 @@ describe("alarm.setupAlarm", () => {
         daysUntilRead: 30,
         daysUntilDelete: -1,
       }),
-      validateSettings: (_s: unknown) => ["invalid"],
+      validateSettings: (_s: unknown) => ({
+        errors: ["invalid"],
+        validatedSettings: undefined,
+      }),
       DEFAULT_INTERVAL_MINUTES: 720,
     }));
 

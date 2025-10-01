@@ -18,7 +18,7 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
 
 - **要約生成・Slack投稿**  
   - 既読化のタイミングで、エントリの「タイトル」「URL」「本文」を要約
-  - 本文はFirecrawl（[公式JS SDK](https://docs.firecrawl.dev/sdks/node)）で抽出
+  - 本文はTavily Extract APIもしくはFirecrawlのScrape APIから抽出（オプション画面で切り替え可能）
   - LLM（OpenAI SDK/OpenAI互換API）で3文・600文字以内に要約
   - 要約結果をSlack Webhook URL経由で自動投稿
 
@@ -30,7 +30,10 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
     - APIキー
     - モデル名
     - Slack Webhook URL
-    - Firecrawl Base URL（デフォルト: https://api.firecrawl.dev）
+  - コンテンツ抽出プロバイダー（Tavily / Firecrawl）
+  - Tavily API キー
+  - Firecrawl API キー
+  - Firecrawl Base URL（デフォルト: https://api.firecrawl.dev）
 
 - **ユーザーインターフェース**  
   - 基本的にUIは不要
@@ -42,7 +45,7 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
 1. **定期処理（バックグラウンドスクリプト）**
     - Chromeリーディングリストからエントリ取得
     - 未読エントリの登録日時をチェックし、規定日数経過で既読化
-    - 既読化時に本文をFirecrawl SDKで抽出
+    - 既読化時に選択中のコンテンツ抽出プロバイダーから本文を取得
     - 本文・タイトル・URLをOpenAI互換APIで要約（3文・600文字以内）
     - Slack Webhookへ指定フォーマットで投稿
     - 既読エントリの既読化日時をチェックし、規定日数経過で自動削除
@@ -72,15 +75,16 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
 
 - Chrome拡張（Manifest V3）
 - chrome.readingList API
-- Firecrawl JS SDK（本文抽出）
+- Tavily Extract API / Firecrawl Scrape API（本文抽出）
 - OpenAI SDK（OpenAI互換API対応）
 - Slack Webhook
 - chrome.storage.local（設定保存）
 
-## Firecrawlの利用
+## コンテンツ抽出プロバイダー
 
-- 既定のBase URLは `https://api.firecrawl.dev` です。オプション画面で Base URL を変更すれば、`http://localhost:3002` などセルフホストした Firecrawl サーバーにも接続できます。
-- セルフホスト環境では `Authorization` ヘッダーの値に任意の文字列を指定できますが、フォームには空でない値を入力してください。
+- デフォルトは Tavily Extract API（Base URL: `https://api.tavily.com`）です。無料枠でも毎月1,000件まで抽出可能です。
+- Firecrawlを利用する場合は、プロバイダーを Firecrawl に切り替え、APIキーと必要に応じて Base URL を設定してください。Base URL を変更すれば、`http://localhost:3002` などセルフホストした Firecrawl サーバーにも接続できます。
+- どちらのプロバイダーでも本文抽出に失敗した場合は自動的にリトライし、最終的に失敗した際はSlackへエラー通知を送信します。
 
 ## 今後の拡張予定
 

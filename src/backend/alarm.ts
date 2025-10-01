@@ -76,7 +76,7 @@ async function getIntervalMinutes(): Promise<number | undefined> {
   try {
     const settings = await getSettings();
     // validateSettings は未指定値を許容するため設定全体を渡してよい
-    const errors = validateSettings(settings);
+    const { errors } = validateSettings(settings);
     if (errors.length > 0) return undefined;
     return settings.alarmIntervalMinutes;
   } catch {

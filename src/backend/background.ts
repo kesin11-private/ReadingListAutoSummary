@@ -4,13 +4,21 @@ import {
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
-import { DEFAULT_FIRECRAWL_BASE_URL } from "../common/constants";
+import {
+  type ContentExtractorProvider,
+  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
+  DEFAULT_FIRECRAWL_BASE_URL,
+} from "../common/constants";
 import type {
   FrontendMessage,
   ManualExecuteResult,
   SlackTestResult,
 } from "../types/messages";
-import { type ExtractContentResult, extractContent } from "./content_extractor";
+import {
+  type ExtractContentConfig,
+  type ExtractContentResult,
+  extractContent,
+} from "./content_extractor";
 import { postToSlack } from "./post";
 import {
   formatSlackErrorMessage,
@@ -112,19 +120,20 @@ async function handleExtractContentMessage(
   try {
     const settings = await getSettings();
 
-    if (!settings.firecrawlApiKey) {
+    const provider = resolveContentExtractorProvider(settings);
+    const missingKeyError = validateContentExtractorCredentials(
+      provider,
+      settings,
+    );
+
+    if (missingKeyError) {
       return {
         success: false,
-        error:
-          "Firecrawl API キーが設定されていません。設定を保存してからお試しください。",
+        error: missingKeyError,
       };
     }
 
-    return await extractContent(
-      url,
-      settings.firecrawlApiKey,
-      settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
-    );
+    return await extractContent(url, buildExtractorConfig(settings));
   } catch (error) {
     return {
       success: false,
@@ -282,22 +291,28 @@ async function processContentExtraction(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
 ): Promise<void> {
-  if (!settings.firecrawlApiKey) {
+  const provider = resolveContentExtractorProvider(settings);
+  const missingKeyError = validateContentExtractorCredentials(
+    provider,
+    settings,
+  );
+
+  if (missingKeyError) {
     console.error(
-      `Firecrawl API キーが未設定のため、本文抽出をスキップ: ${entry.title}`,
+      `${provider} API キーが未設定のため本文抽出をスキップ: ${entry.title}`,
     );
+    await notifyExtractionError(entry, settings, provider, missingKeyError);
     return;
   }
 
   const extractResult = await extractContent(
     entry.url,
-    settings.firecrawlApiKey,
-    settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
+    buildExtractorConfig(settings),
   );
 
-  if (!extractResult.success || !extractResult.content) {
+  if (!extractResult.success) {
     console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
-    await notifyExtractionError(entry, settings, extractResult.error);
+    await notifyExtractionError(entry, settings, provider, extractResult.error);
     return;
   }
 
@@ -366,6 +381,7 @@ async function processSummarization(
 async function notifyExtractionError(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
+  provider: ContentExtractorProvider,
   error?: string,
 ): Promise<void> {
   if (!settings.slackWebhookUrl || !settings.openaiModel) {
@@ -376,9 +392,56 @@ async function notifyExtractionError(
     entry.title,
     entry.url,
     settings.openaiModel,
-    `本文抽出失敗: ${error}`,
+    `本文抽出失敗 (${provider}): ${error}`,
   );
   await postToSlack(settings.slackWebhookUrl, errorMessage);
+}
+
+function resolveContentExtractorProvider(
+  settings: Settings,
+): ContentExtractorProvider {
+  return (
+    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER
+  );
+}
+
+function buildExtractorConfig(settings: Settings): ExtractContentConfig {
+  const provider = resolveContentExtractorProvider(settings);
+
+  if (provider === "firecrawl") {
+    return {
+      provider: "firecrawl",
+      firecrawl: {
+        apiKey: settings.firecrawlApiKey || "",
+        baseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
+      },
+    };
+  }
+
+  return {
+    provider: "tavily",
+    tavily: {
+      apiKey: settings.tavilyApiKey || "",
+    },
+  };
+}
+
+function validateContentExtractorCredentials(
+  provider: ContentExtractorProvider,
+  settings: Settings,
+): string | null {
+  if (provider === "tavily") {
+    if (!settings.tavilyApiKey?.trim()) {
+      return "Tavily API キーが設定されていません。設定を保存してからお試しください。";
+    }
+    return null;
+  }
+
+  if (!settings.firecrawlApiKey?.trim()) {
+    return "Firecrawl API キーが設定されていません。設定を保存してからお試しください。";
+  }
+
+  return null;
 }
 
 /**

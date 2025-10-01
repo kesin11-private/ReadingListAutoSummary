@@ -101,9 +101,22 @@ pnpm check:ai         # Complete validation pipeline (type-check + lint + test +
 - **Commit messages must be in English** - Always write commit messages in English for consistency
 - Settings stored in `chrome.storage.local` with these keys:
   - Days until read (default: 30)
-  - Days until delete (default: 60)  
+  - Days until delete (default: 60)
   - OpenAI API endpoint/key/model
   - Slack webhook URL
+
+### Type Safety Best Practices
+- **Use Discriminated Unions for State and Configuration**
+  - Example: `ExtractContentConfig` uses discriminated union with `provider` field to ensure type-safe provider-specific configurations
+  - Example: `ExtractContentResult` uses discriminated union with `success` boolean to ensure only valid field combinations exist
+  - Benefits: Eliminates impossible states (e.g., `success: true` with `error` field), enables exhaustive pattern matching, provides better IDE autocomplete
+- **Avoid Optional Fields for Required Data**
+  - Instead of `{ apiKey?: string, baseUrl?: string }`, use strict types like `{ apiKey: string, baseUrl: string }`
+  - Push validation to the boundary (e.g., settings UI or API call site) rather than allowing undefined/null to propagate
+- **Eliminate Error-Prone Fallback Logic**
+  - Avoid silent fallbacks like `baseUrl || DEFAULT_BASE_URL` in deep call chains
+  - Fail fast with explicit errors at configuration time rather than masking issues during runtime
+  - Example: Removed URL parsing fallback in `extractWithFirecrawl` - invalid URLs now throw immediately
 
 ## File Patterns
 - Backend code: `src/backend/` (Service worker)

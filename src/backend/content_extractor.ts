@@ -1,11 +1,34 @@
-import { DEFAULT_FIRECRAWL_BASE_URL } from "../common/constants";
+import { DEFAULT_TAVILY_BASE_URL } from "../common/constants";
 
-export interface ExtractContentResult {
-  success: boolean;
-  content?: string;
-  title?: string;
-  error?: string;
+export type ExtractContentResult =
+  | {
+      success: true;
+      content: string;
+      title?: string;
+    }
+  | {
+      success: false;
+      error: string;
+    };
+
+export interface FirecrawlConfig {
+  apiKey: string;
+  baseUrl: string;
 }
+
+export interface TavilyConfig {
+  apiKey: string;
+}
+
+export type ExtractContentConfig =
+  | {
+      provider: "firecrawl";
+      firecrawl: FirecrawlConfig;
+    }
+  | {
+      provider: "tavily";
+      tavily: TavilyConfig;
+    };
 
 interface FirecrawlV2Metadata {
   title?: string;
@@ -25,6 +48,21 @@ interface FirecrawlV2Response {
   success: boolean;
   data?: FirecrawlV2Data;
   warning?: string;
+}
+
+interface TavilyExtractResult {
+  url: string;
+  raw_content?: string;
+  title?: string;
+  favicon?: string;
+}
+
+interface TavilyExtractResponse {
+  results?: TavilyExtractResult[];
+  failed_results?: Array<{
+    url: string;
+    error: string;
+  }>;
 }
 
 /**
@@ -66,68 +104,17 @@ async function retryWithExponentialBackoff<T>(
  */
 export async function extractContent(
   url: string,
-  apiKey: string,
-  firecrawlBaseUrl: string = DEFAULT_FIRECRAWL_BASE_URL,
+  config: ExtractContentConfig,
 ): Promise<ExtractContentResult> {
-  if (!apiKey?.trim()) {
-    const error = "Firecrawl API キーが設定されていません";
-    console.error(error);
-    return {
-      success: false,
-      error,
-    };
-  }
-
-  console.log(`本文抽出開始: ${url}`);
+  console.log(`本文抽出開始: ${url} (provider=${config.provider})`);
 
   try {
     const result = await retryWithExponentialBackoff(async () => {
-      console.log(`Firecrawl API呼び出し: ${url}`);
-
-      const sanitizedBaseUrl =
-        firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
-      let endpoint: string;
-
-      try {
-        endpoint = new URL("/v2/scrape", sanitizedBaseUrl).toString();
-      } catch (error) {
-        console.warn(
-          `Firecrawl Base URLの解析に失敗したためデフォルトを使用します: ${sanitizedBaseUrl}`,
-          error,
-        );
-        endpoint = new URL("/v2/scrape", DEFAULT_FIRECRAWL_BASE_URL).toString();
+      if (config.provider === "firecrawl") {
+        return extractWithFirecrawl(url, config.firecrawl);
       }
 
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          url,
-          formats: ["markdown"],
-          onlyMainContent: true,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Firecrawl API error: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const apiResponse: FirecrawlV2Response = await response.json();
-
-      // エラーレスポンスの場合
-      if (!apiResponse || !apiResponse.data || !apiResponse.data.markdown) {
-        throw new Error("抽出された本文が空です");
-      }
-
-      return {
-        content: apiResponse.data.markdown,
-        title: apiResponse.data.metadata?.title || new URL(url).hostname,
-      };
+      return extractWithTavily(url, config.tavily);
     });
 
     console.log(`本文抽出成功: ${url} (文字数: ${result.content.length})`);
@@ -138,10 +125,92 @@ export async function extractContent(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`本文抽出失敗: ${url} - ${errorMessage}`);
+    console.error(
+      `本文抽出失敗: ${url} (provider=${config.provider}) - ${errorMessage}`,
+    );
     return {
       success: false,
       error: errorMessage,
     };
   }
+}
+
+async function extractWithFirecrawl(
+  url: string,
+  config: FirecrawlConfig,
+): Promise<{ content: string; title: string }> {
+  console.log(`Firecrawl API呼び出し: ${url}`);
+
+  const endpoint = new URL("/v2/scrape", config.baseUrl).toString();
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["markdown"],
+      onlyMainContent: true,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Firecrawl API error: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const apiResponse: FirecrawlV2Response = await response.json();
+
+  if (!apiResponse?.data?.markdown) {
+    throw new Error("抽出された本文が空です");
+  }
+
+  return {
+    content: apiResponse.data.markdown,
+    title: apiResponse.data.metadata?.title || new URL(url).hostname,
+  };
+}
+
+async function extractWithTavily(
+  url: string,
+  config: TavilyConfig,
+): Promise<{ content: string; title: string }> {
+  console.log(`Tavily API呼び出し: ${url}`);
+
+  const endpoint = new URL("/extract", DEFAULT_TAVILY_BASE_URL).toString();
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      urls: [url],
+      extract_depth: "basic",
+      format: "markdown",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Tavily API error: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const apiResponse: TavilyExtractResponse = await response.json();
+
+  const result = apiResponse?.results?.[0];
+  if (!result?.raw_content) {
+    const failedMessage = apiResponse?.failed_results?.[0]?.error;
+    throw new Error(failedMessage || "抽出された本文が空です");
+  }
+
+  return {
+    content: result.raw_content,
+    title: result.title || new URL(url).hostname,
+  };
 }
