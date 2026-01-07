@@ -33,6 +33,6 @@
   },
   "dependencies": {
     "openai": "^5.16.0",
-    "preact": "^10.27.1"
+    "preact": "^10.27.3"
   }
 }
