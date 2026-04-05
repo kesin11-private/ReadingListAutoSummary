@@ -74,16 +74,6 @@ const LEGACY_LLM_STORAGE_KEYS = [
   "openaiModel",
 ] as const;
 
-const LEGACY_CONTENT_EXTRACTOR_STORAGE_KEYS = [
-  "firecrawlApiKey",
-  "firecrawlBaseUrl",
-] as const;
-
-const LEGACY_STORAGE_KEYS = [
-  ...LEGACY_LLM_STORAGE_KEYS,
-  ...LEGACY_CONTENT_EXTRACTOR_STORAGE_KEYS,
-];
-
 const LEGACY_ENDPOINT_ID = "legacy-endpoint";
 const LEGACY_MODEL_ID = "legacy-model";
 const EMPTY_LLM_SETTINGS: StoredLlmSettings = {
@@ -288,7 +278,7 @@ function addOptionalSetting(
 }
 
 function getOptionalKeysToRemove(settings: Settings): string[] {
-  const keysToRemove: string[] = [...LEGACY_STORAGE_KEYS];
+  const keysToRemove: string[] = [...LEGACY_LLM_STORAGE_KEYS];
 
   for (const key of REMOVABLE_OPTIONAL_KEYS) {
     const value = settings[key];

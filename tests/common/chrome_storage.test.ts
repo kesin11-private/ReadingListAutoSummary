@@ -123,10 +123,10 @@ describe("chrome_storage", () => {
       expect(result.selectedLlmModelId).toBe("legacy-model");
     });
 
-    it("旧 Firecrawl モードが保存されていても既定モードへ寄せる", async () => {
+    it("未対応の旧モード文字列でも既定モードへ寄せる", async () => {
       mockChromeStorage.local.get.mockResolvedValue({
         ...validLlmSettings,
-        contentExtractorProvider: "firecrawl",
+        contentExtractorProvider: "legacy-removed-mode",
       });
 
       const result = await getSettings();
@@ -159,8 +159,6 @@ describe("chrome_storage", () => {
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
-        "firecrawlApiKey",
-        "firecrawlBaseUrl",
       ]);
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
         daysUntilRead: 20,
@@ -191,8 +189,6 @@ describe("chrome_storage", () => {
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
-        "firecrawlApiKey",
-        "firecrawlBaseUrl",
         "slackWebhookUrl",
         "tavilyApiKey",
         "systemPrompt",
