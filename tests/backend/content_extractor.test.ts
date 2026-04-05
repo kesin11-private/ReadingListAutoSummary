@@ -142,6 +142,76 @@ describe("extractContent", () => {
     );
   });
 
+  it("Tavily モードではローカル取得を行わずに本文抽出する", async () => {
+    const mockContent = "# Tavilyタイトル\n\nTavily本文";
+    const mockTitle = "Tavilyタイトル";
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: [
+          {
+            url: "https://example.com/article",
+            raw_content: mockContent,
+            title: mockTitle,
+          },
+        ],
+      }),
+    });
+
+    const result = await extractContent("https://example.com/article", {
+      mode: "tavily",
+      tavily: { apiKey: "tv-test-key" },
+    });
+
+    expect(result).toEqual({
+      success: true,
+      content: mockContent,
+      title: mockTitle,
+      source: "tavily",
+      outcome: "tavily-success",
+      attempts: [
+        {
+          source: "tavily",
+          success: true,
+          kind: "tavily-success",
+        },
+      ],
+    });
+
+    const expectedEndpoint = new URL(
+      "/extract",
+      DEFAULT_TAVILY_BASE_URL,
+    ).toString();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expectedEndpoint,
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+  });
+
+  it("Tavily モードでAPIキーが未設定なら失敗する", async () => {
+    const result = await extractContent("https://example.com/article", {
+      mode: "tavily",
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: "Tavily API キーが未設定のため本文抽出できません。",
+      outcome: "tavily-only-failed",
+      attempts: [
+        {
+          source: "tavily",
+          success: false,
+          kind: "configuration-missing",
+          error: "Tavily API キーが未設定のため本文抽出できません。",
+        },
+      ],
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("ローカル fetch 例外かつ Tavily 未設定なら失敗詳細を返す", async () => {
     mockFetch.mockRejectedValue(new TypeError("Failed to fetch"));
 
@@ -191,6 +261,7 @@ describe("extractContent", () => {
     });
 
     const extractPromise = extractContent("https://example.com/article", {
+      mode: "local-with-tavily-fallback",
       tavily: { apiKey: "tv-test-key" },
     });
     await vi.runAllTimersAsync();
@@ -248,6 +319,7 @@ describe("extractContent", () => {
       });
 
     const extractPromise = extractContent("https://example.com/article", {
+      mode: "local-with-tavily-fallback",
       tavily: { apiKey: "tv-test-key" },
     });
     await vi.advanceTimersByTimeAsync(1000);
@@ -297,6 +369,7 @@ describe("extractContent", () => {
       });
 
     const result = await extractContent("https://example.com/article", {
+      mode: "local-with-tavily-fallback",
       tavily: { apiKey: "tv-test-key" },
     });
 

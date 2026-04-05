@@ -122,13 +122,15 @@ describe("Message handling", () => {
     expect(result).toBe(true);
     await vi.runAllTimersAsync();
 
-    expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {});
+    expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+      mode: "local-with-tavily-fallback",
+    });
     expect(sendResponse).toHaveBeenCalledWith(mockResult);
 
     vi.useRealTimers();
   });
 
-  it("Tavily API キーがあればフォールバック設定付きで抽出を実行する", async () => {
+  it("Tavily API キーがあれば既定モード付きで抽出を実行する", async () => {
     vi.useFakeTimers();
     mockChromeStorageLocal.get.mockResolvedValue({
       tavilyApiKey: "tv-test-key",
@@ -149,6 +151,39 @@ describe("Message handling", () => {
     await vi.runAllTimersAsync();
 
     expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+      mode: "local-with-tavily-fallback",
+      tavily: {
+        apiKey: "tv-test-key",
+      },
+    });
+    expect(sendResponse).toHaveBeenCalledWith(mockResult);
+
+    vi.useRealTimers();
+  });
+
+  it("Tavily モードが選択されていればそのモードで抽出を実行する", async () => {
+    vi.useFakeTimers();
+    mockChromeStorageLocal.get.mockResolvedValue({
+      contentExtractorProvider: "tavily",
+      tavilyApiKey: "tv-test-key",
+    });
+
+    const mockResult = createExtractSuccessResult();
+    mockExtractContent.mockResolvedValue(mockResult);
+
+    const sendResponse = vi.fn();
+    const listener = getMessageListener();
+
+    listener(
+      { type: "EXTRACT_CONTENT", url: "https://example.com" },
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
+
+    await vi.runAllTimersAsync();
+
+    expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+      mode: "tavily",
       tavily: {
         apiKey: "tv-test-key",
       },

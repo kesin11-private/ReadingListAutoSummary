@@ -358,10 +358,9 @@ async function processSummarization(
   content: string,
   settings: Settings,
 ): Promise<void> {
-  const { slackWebhookUrl } = settings;
   const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
-  if (!llmConfig || !slackWebhookUrl) {
+  if (!llmConfig || !settings.slackWebhookUrl) {
     if (!llmConfig) {
       logLlmResolutionFailure(
         `既読化エントリの要約をスキップ: ${entry.title}`,
@@ -383,24 +382,22 @@ async function processSummarization(
     getSystemPrompt(settings),
   );
 
-  let slackMessage: string;
-  if (summarizeResult.success && summarizeResult.summary) {
-    slackMessage = formatSlackMessage(
-      entry.title,
-      entry.url,
-      llmConfig.modelName,
-      summarizeResult.summary,
-    );
-  } else {
-    slackMessage = formatSlackErrorMessage(
-      entry.title,
-      entry.url,
-      llmConfig.modelName,
-      summarizeResult.error || "不明なエラー",
-    );
-  }
+  const slackMessage =
+    summarizeResult.success && summarizeResult.summary
+      ? formatSlackMessage(
+          entry.title,
+          entry.url,
+          llmConfig.modelName,
+          summarizeResult.summary,
+        )
+      : formatSlackErrorMessage(
+          entry.title,
+          entry.url,
+          llmConfig.modelName,
+          summarizeResult.error || "不明なエラー",
+        );
 
-  await postToSlack(slackWebhookUrl, slackMessage);
+  await postToSlack(settings.slackWebhookUrl, slackMessage);
 }
 
 /**
@@ -427,16 +424,20 @@ async function notifyExtractionError(
 }
 
 function buildExtractorConfig(settings: Settings): ExtractContentConfig {
-  const tavilyApiKey = settings.tavilyApiKey?.trim();
-  if (!tavilyApiKey) {
-    return {};
+  const config: ExtractContentConfig = {};
+  if (settings.contentExtractorProvider) {
+    config.mode = settings.contentExtractorProvider;
   }
 
-  return {
-    tavily: {
-      apiKey: tavilyApiKey,
-    },
+  const tavilyApiKey = settings.tavilyApiKey?.trim();
+  if (!tavilyApiKey) {
+    return config;
+  }
+
+  config.tavily = {
+    apiKey: tavilyApiKey,
   };
+  return config;
 }
 
 /**

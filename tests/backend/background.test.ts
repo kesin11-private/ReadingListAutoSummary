@@ -120,6 +120,7 @@ const completeSettings: Settings = {
   ],
   selectedLlmEndpointId: "endpoint-1",
   selectedLlmModelId: "model-1",
+  contentExtractorProvider: "local-with-tavily-fallback",
   slackWebhookUrl: "https://hooks.slack.com/test",
   tavilyApiKey: "tv-test-key",
   systemPrompt: "カスタムプロンプト",
@@ -227,6 +228,12 @@ describe("markAsReadAndNotify", () => {
       url: entry.url,
       hasBeenRead: true,
     });
+    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
+      mode: "local-with-tavily-fallback",
+      tavily: {
+        apiKey: "tv-test-key",
+      },
+    });
     expect(mockSummarizeContent).toHaveBeenCalledWith(
       entry.title,
       entry.url,
@@ -254,6 +261,12 @@ describe("markAsReadAndNotify", () => {
 
     await markAsReadAndNotify(entry, completeSettings);
 
+    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
+      mode: "local-with-tavily-fallback",
+      tavily: {
+        apiKey: "tv-test-key",
+      },
+    });
     expect(mockSummarizeContent).not.toHaveBeenCalled();
     expect(mockFormatSlackErrorMessage).toHaveBeenCalledWith(
       entry.title,

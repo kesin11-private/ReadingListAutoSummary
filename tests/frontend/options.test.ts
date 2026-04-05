@@ -186,11 +186,24 @@ describe("ContentExtractorTest", () => {
   });
 
   it("ローカル抽出優先とTavilyフォールバックの説明を表示する", () => {
-    render(h(ContentExtractorTest, { provider: "tavily" }), container);
+    render(
+      h(ContentExtractorTest, {
+        provider: "local-with-tavily-fallback",
+      }),
+      container,
+    );
 
     expect(container.textContent).toContain("コンテンツ抽出テスト");
     expect(container.textContent).toContain(
-      "まず拡張機能内でHTMLを取得して本文を抽出し、失敗時のみTavily APIキーが設定されていればフォールバックします。",
+      "拡張機能内でHTMLを取得して本文を抽出し、失敗時のみ Tavily Extract API にフォールバックします。Tavily API キーは任意です。",
+    );
+  });
+
+  it("Tavily モードではローカル抽出を行わない説明を表示する", () => {
+    render(h(ContentExtractorTest, { provider: "tavily" }), container);
+
+    expect(container.textContent).toContain(
+      "ローカル抽出は行わず、最初から Tavily Extract API で本文を抽出します。Tavily API キーが必須です。",
     );
   });
 
@@ -216,7 +229,12 @@ describe("ContentExtractorTest", () => {
         modelName: "gpt-4o-mini",
       });
 
-    render(h(ContentExtractorTest, { provider: "tavily" }), container);
+    render(
+      h(ContentExtractorTest, {
+        provider: "local-with-tavily-fallback",
+      }),
+      container,
+    );
 
     const input = container.querySelector("input[type='url']");
     expect(input).toBeTruthy();
@@ -241,8 +259,50 @@ describe("ContentExtractorTest", () => {
       url: "https://example.com/article",
       content: "# Local Title\n\n本文",
     });
-    expect(container.textContent).toContain("✓ ローカル抽出成功");
+    expect(container.textContent).toContain("✓ 本文抽出成功: ローカル");
     expect(container.textContent).toContain("✓ 要約成功");
+  });
+
+  it("抽出成功後に要約で例外が起きても抽出結果を失敗で上書きしない", async () => {
+    mockChromeRuntime.sendMessage
+      .mockResolvedValueOnce({
+        success: true,
+        content: "# Local Title\n\n本文",
+        title: "Local Title",
+        source: "local",
+        outcome: "local-success",
+        attempts: [
+          {
+            source: "local",
+            success: true,
+            kind: "local-success",
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("summarize failed"));
+
+    render(
+      h(ContentExtractorTest, {
+        provider: "local-with-tavily-fallback",
+      }),
+      container,
+    );
+
+    const input = container.querySelector("input[type='url']");
+    expect(input).toBeTruthy();
+
+    (input as HTMLInputElement).value = "https://example.com/article";
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushPromises();
+
+    const button = container.querySelector("button");
+    expect(button).toBeTruthy();
+
+    button?.click();
+    await flushPromises();
+
+    expect(container.textContent).toContain("✓ 本文抽出成功: ローカル");
+    expect(container.textContent).toContain("✗ 要約失敗: summarize failed");
   });
 
   it("Tavilyキー未設定のローカル失敗では要約を実行しない", async () => {
@@ -267,7 +327,12 @@ describe("ContentExtractorTest", () => {
       ],
     });
 
-    render(h(ContentExtractorTest, { provider: "tavily" }), container);
+    render(
+      h(ContentExtractorTest, {
+        provider: "local-with-tavily-fallback",
+      }),
+      container,
+    );
 
     const input = container.querySelector("input[type='url']");
     expect(input).toBeTruthy();
@@ -283,6 +348,6 @@ describe("ContentExtractorTest", () => {
     await flushPromises();
 
     expect(mockChromeRuntime.sendMessage).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("✗ ローカル抽出失敗");
+    expect(container.textContent).toContain("✗ 本文抽出失敗: ローカル");
   });
 });

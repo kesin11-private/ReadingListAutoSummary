@@ -7,7 +7,6 @@ import {
   type ValidatedSettings,
   validateSettings,
 } from "../../src/common/chrome_storage";
-import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 
 const mockChromeStorage = {
   local: {
@@ -74,8 +73,6 @@ describe("chrome_storage", () => {
         "slackWebhookUrl",
         "contentExtractorProvider",
         "tavilyApiKey",
-        "firecrawlApiKey",
-        "firecrawlBaseUrl",
         "systemPrompt",
       ]);
     });
@@ -88,9 +85,8 @@ describe("chrome_storage", () => {
         alarmIntervalMinutes: 120,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "firecrawl",
-        firecrawlApiKey: "fc-test123",
-        firecrawlBaseUrl: "http://localhost:3002",
+        contentExtractorProvider: "local-with-tavily-fallback" as const,
+        tavilyApiKey: "tv-test123",
       };
       mockChromeStorage.local.get.mockResolvedValue(storedSettings);
 
@@ -127,12 +123,17 @@ describe("chrome_storage", () => {
       expect(result.selectedLlmModelId).toBe("legacy-model");
     });
 
-    it("Firecrawl Base URLが存在しない場合は既定値を返す", async () => {
-      mockChromeStorage.local.get.mockResolvedValue(validLlmSettings);
+    it("旧 Firecrawl モードが保存されていても既定モードへ寄せる", async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        ...validLlmSettings,
+        contentExtractorProvider: "firecrawl",
+      });
 
       const result = await getSettings();
 
-      expect(result.firecrawlBaseUrl).toBe(DEFAULT_FIRECRAWL_BASE_URL);
+      expect(result.contentExtractorProvider).toBe(
+        "local-with-tavily-fallback",
+      );
     });
   });
 
@@ -146,10 +147,8 @@ describe("chrome_storage", () => {
         alarmIntervalMinutes: 15,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "tavily",
+        contentExtractorProvider: "local-with-tavily-fallback",
         tavilyApiKey: "tv-test123",
-        firecrawlApiKey: "fc-test123",
-        firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
         validated: true,
       };
@@ -160,6 +159,8 @@ describe("chrome_storage", () => {
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
+        "firecrawlApiKey",
+        "firecrawlBaseUrl",
       ]);
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
         daysUntilRead: 20,
@@ -168,10 +169,8 @@ describe("chrome_storage", () => {
         alarmIntervalMinutes: 15,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "tavily",
+        contentExtractorProvider: "local-with-tavily-fallback",
         tavilyApiKey: "tv-test123",
-        firecrawlApiKey: "fc-test123",
-        firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
       });
     });
@@ -182,7 +181,6 @@ describe("chrome_storage", () => {
         ...validLlmSettings,
         slackWebhookUrl: "",
         tavilyApiKey: "",
-        firecrawlApiKey: "",
         systemPrompt: "",
         validated: true,
       };
@@ -193,16 +191,16 @@ describe("chrome_storage", () => {
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
+        "firecrawlApiKey",
+        "firecrawlBaseUrl",
         "slackWebhookUrl",
         "tavilyApiKey",
-        "firecrawlApiKey",
         "systemPrompt",
       ]);
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith(
         expect.objectContaining({
           slackWebhookUrl: "",
           tavilyApiKey: "",
-          firecrawlApiKey: "",
           systemPrompt: "",
         }),
       );
@@ -216,9 +214,8 @@ describe("chrome_storage", () => {
       daysUntilDelete: 60,
       maxEntriesPerRun: 5,
       alarmIntervalMinutes: 720,
-      contentExtractorProvider: "firecrawl",
-      firecrawlApiKey: "fc-test",
-      firecrawlBaseUrl: "https://api.firecrawl.dev",
+      contentExtractorProvider: "local-with-tavily-fallback",
+      tavilyApiKey: "tv-test",
       ...validLlmSettings,
     };
 
@@ -318,7 +315,14 @@ describe("chrome_storage", () => {
       ).toContain("実行間隔（分）は1以上の整数で入力してください");
     });
 
-    it("コンテンツ抽出プロバイダーごとの必須キーを検証する", () => {
+    it("Tavily モードではAPIキー必須、ローカルモードでは任意", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          contentExtractorProvider: "local-with-tavily-fallback",
+          tavilyApiKey: "",
+        }).errors,
+      ).toEqual([]);
       expect(
         validateSettings({
           ...baseSettings,
@@ -326,28 +330,6 @@ describe("chrome_storage", () => {
           tavilyApiKey: "",
         }).errors,
       ).toContain("Tavily APIキーを入力してください");
-      expect(
-        validateSettings({
-          ...baseSettings,
-          contentExtractorProvider: "firecrawl",
-          firecrawlApiKey: "",
-        }).errors,
-      ).toContain("Firecrawl APIキーを入力してください");
-    });
-
-    it("Firecrawl Base URLの形式を検証する", () => {
-      expect(
-        validateSettings({
-          ...baseSettings,
-          firecrawlBaseUrl: "not-a-url",
-        }).errors,
-      ).toContain("Firecrawl Base URLは有効なURLで入力してください");
-      expect(
-        validateSettings({
-          ...baseSettings,
-          firecrawlBaseUrl: "ftp://example.com",
-        }).errors,
-      ).toContain("Firecrawl Base URLはhttpまたはhttpsで指定してください");
     });
 
     it("選択中のLLM endpoint/modelの不整合を検証する", () => {

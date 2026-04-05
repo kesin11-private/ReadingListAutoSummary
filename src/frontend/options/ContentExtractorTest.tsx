@@ -2,7 +2,11 @@ import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type { ExtractContentResult } from "../../backend/content_extractor";
 import type { SummarizeResult } from "../../backend/summarizer";
-import type { ContentExtractorProvider } from "../../common/constants";
+import {
+  CONTENT_EXTRACTOR_PROVIDER_DESCRIPTIONS,
+  CONTENT_EXTRACTOR_PROVIDER_LABELS,
+  type ContentExtractorProvider,
+} from "../../common/constants";
 import type {
   ExtractContentMessage,
   SlackTestMessage,
@@ -27,6 +31,7 @@ function isExtractContentResult(obj: unknown): obj is ExtractContentResult {
     return (
       typeof result.content === "string" &&
       (result.outcome === "local-success" ||
+        result.outcome === "tavily-success" ||
         result.outcome === "tavily-fallback-success")
     );
   }
@@ -34,6 +39,7 @@ function isExtractContentResult(obj: unknown): obj is ExtractContentResult {
   return (
     typeof result.error === "string" &&
     (result.outcome === "local-failed-no-fallback" ||
+      result.outcome === "tavily-only-failed" ||
       result.outcome === "tavily-fallback-failed")
   );
 }
@@ -82,28 +88,35 @@ function createExtractFailureResult(error: string): ExtractContentResult {
   };
 }
 
-function getExtractResultMessage(result: ExtractContentResult): string {
-  if (result.success) {
-    if (result.source === "local") {
-      return `✓ ローカル抽出成功 (文字数: ${result.content.length})`;
-    }
-
-    return `✓ Tavilyフォールバック成功 (文字数: ${result.content.length})`;
+function getExtractResultMethodLabel(result: ExtractContentResult): string {
+  if (
+    result.outcome === "local-success" ||
+    result.outcome === "local-failed-no-fallback"
+  ) {
+    return "ローカル";
   }
 
-  if (result.outcome === "local-failed-no-fallback") {
-    return `✗ ローカル抽出失敗: ${result.error}`;
-  }
-
-  return `✗ ローカル抽出とTavilyフォールバックに失敗: ${result.error}`;
-}
-
-function getProviderLabel(provider: ContentExtractorProvider): string {
-  if (provider === "tavily") {
+  if (
+    result.outcome === "tavily-success" ||
+    result.outcome === "tavily-only-failed"
+  ) {
     return "Tavily";
   }
 
-  return "Firecrawl";
+  if (result.outcome === "tavily-fallback-success") {
+    return "Tavilyフォールバック";
+  }
+
+  return "ローカル + Tavilyフォールバック";
+}
+
+function getExtractResultMessage(result: ExtractContentResult): string {
+  const methodLabel = getExtractResultMethodLabel(result);
+  if (result.success) {
+    return `✓ 本文抽出成功: ${methodLabel} (文字数: ${result.content.length})`;
+  }
+
+  return `✗ 本文抽出失敗: ${methodLabel} - ${result.error}`;
 }
 
 function getSlackResultDisplay(slackResult: SlackTestResult): {
@@ -149,7 +162,6 @@ export function ContentExtractorTest({
     setSlackResult(null);
 
     try {
-      // Slack設定の確認
       const settings = await chrome.storage.local.get(["slackWebhookUrl"]);
       if (!settings.slackWebhookUrl) {
         setSlackResult({
@@ -160,7 +172,6 @@ export function ContentExtractorTest({
         return;
       }
 
-      // 要約結果をSlackメッセージ形式に変換
       const title =
         (result?.success === true ? result.title : undefined) ||
         new URL(trimmedUrl).hostname;
@@ -206,8 +217,9 @@ export function ContentExtractorTest({
     setSummarizeResult(null);
     setSlackResult(null);
 
+    let extractResult: ExtractContentResult | null = null;
+
     try {
-      // Step 1: Extract content
       const extractMessage: ExtractContentMessage = {
         type: "EXTRACT_CONTENT",
         url: trimmedUrl,
@@ -220,13 +232,13 @@ export function ContentExtractorTest({
         return;
       }
 
+      extractResult = extractResponse;
       setResult(extractResponse);
 
       if (!extractResponse.success || !extractResponse.content) {
-        return; // Extraction failed, stop here
+        return;
       }
 
-      // Step 2: Summarize content
       const title = new URL(trimmedUrl).hostname;
 
       const summarizeMessage: SummarizeTestMessage = {
@@ -250,11 +262,9 @@ export function ContentExtractorTest({
     } catch (error) {
       const errorMessage = normalizeErrorMessage(error);
 
-      // If no extraction result yet, set extraction error
-      if (!result) {
+      if (!extractResult) {
         setResult(createExtractFailureResult(errorMessage));
       } else {
-        // If extraction was successful but summarization failed
         setSummarizeResult({
           success: false,
           error: errorMessage,
@@ -270,14 +280,13 @@ export function ContentExtractorTest({
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-md font-semibold">コンテンツ抽出テスト</h3>
         <span class="text-xs font-medium text-gray-600 border border-gray-300 rounded px-2 py-1">
-          現在のプロバイダー: {getProviderLabel(provider)}
+          現在のモード: {CONTENT_EXTRACTOR_PROVIDER_LABELS[provider]}
         </span>
       </div>
 
       <div class="space-y-4">
         <p class="text-sm text-gray-600">
-          まず拡張機能内でHTMLを取得して本文を抽出し、失敗時のみTavily
-          APIキーが設定されていればフォールバックします。
+          {CONTENT_EXTRACTOR_PROVIDER_DESCRIPTIONS[provider]}
         </p>
 
         <div>
@@ -373,7 +382,7 @@ export function ContentExtractorTest({
               Slack投稿結果:
             </h4>
             <div
-              class={`p-3 rounded-md text-sm ${slackResultDisplay?.className ?? ""}`}
+              class={`p-3 rounded-md text-sm ${slackResultDisplay?.className}`}
             >
               {slackResultDisplay?.message}
             </div>

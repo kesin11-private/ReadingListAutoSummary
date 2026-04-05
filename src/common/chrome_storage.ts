@@ -2,7 +2,6 @@ import {
   CONTENT_EXTRACTOR_PROVIDERS,
   type ContentExtractorProvider,
   DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-  DEFAULT_FIRECRAWL_BASE_URL,
 } from "./constants";
 import {
   type LlmEndpointConfig,
@@ -23,8 +22,6 @@ export interface Settings {
   slackWebhookUrl?: string;
   contentExtractorProvider?: ContentExtractorProvider;
   tavilyApiKey?: string;
-  firecrawlApiKey?: string;
-  firecrawlBaseUrl?: string;
   systemPrompt?: string;
 }
 
@@ -50,8 +47,6 @@ interface StoredSettings extends Record<string, unknown> {
   slackWebhookUrl?: unknown;
   contentExtractorProvider?: unknown;
   tavilyApiKey?: unknown;
-  firecrawlApiKey?: unknown;
-  firecrawlBaseUrl?: unknown;
   systemPrompt?: unknown;
 }
 
@@ -70,8 +65,6 @@ const SETTINGS_STORAGE_KEYS = [
   "slackWebhookUrl",
   "contentExtractorProvider",
   "tavilyApiKey",
-  "firecrawlApiKey",
-  "firecrawlBaseUrl",
   "systemPrompt",
 ] as const;
 
@@ -80,6 +73,16 @@ const LEGACY_LLM_STORAGE_KEYS = [
   "openaiApiKey",
   "openaiModel",
 ] as const;
+
+const LEGACY_CONTENT_EXTRACTOR_STORAGE_KEYS = [
+  "firecrawlApiKey",
+  "firecrawlBaseUrl",
+] as const;
+
+const LEGACY_STORAGE_KEYS = [
+  ...LEGACY_LLM_STORAGE_KEYS,
+  ...LEGACY_CONTENT_EXTRACTOR_STORAGE_KEYS,
+];
 
 const LEGACY_ENDPOINT_ID = "legacy-endpoint";
 const LEGACY_MODEL_ID = "legacy-model";
@@ -121,7 +124,6 @@ export const DEFAULT_SETTINGS: Settings = {
   selectedLlmEndpointId: null,
   selectedLlmModelId: null,
   contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-  firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
 };
 
 const DEFAULT_MAX_ENTRIES_PER_RUN = DEFAULT_SETTINGS.maxEntriesPerRun ?? 3;
@@ -272,13 +274,12 @@ type SettingsToSave = Record<
 const REMOVABLE_OPTIONAL_KEYS = [
   "slackWebhookUrl",
   "tavilyApiKey",
-  "firecrawlApiKey",
   "systemPrompt",
 ] as const;
 
 function addOptionalSetting(
   settingsToSave: SettingsToSave,
-  key: keyof Settings,
+  key: string,
   value: string | ContentExtractorProvider | undefined,
 ): void {
   if (value !== undefined) {
@@ -287,7 +288,7 @@ function addOptionalSetting(
 }
 
 function getOptionalKeysToRemove(settings: Settings): string[] {
-  const keysToRemove = [...LEGACY_LLM_STORAGE_KEYS] as string[];
+  const keysToRemove: string[] = [...LEGACY_STORAGE_KEYS];
 
   for (const key of REMOVABLE_OPTIONAL_KEYS) {
     const value = settings[key];
@@ -323,16 +324,6 @@ function createSettingsToSave(settings: Settings): SettingsToSave {
     settings.contentExtractorProvider,
   );
   addOptionalSetting(settingsToSave, "tavilyApiKey", settings.tavilyApiKey);
-  addOptionalSetting(
-    settingsToSave,
-    "firecrawlApiKey",
-    settings.firecrawlApiKey,
-  );
-  addOptionalSetting(
-    settingsToSave,
-    "firecrawlBaseUrl",
-    settings.firecrawlBaseUrl,
-  );
   if (settings.systemPrompt !== undefined) {
     settingsToSave.systemPrompt = settings.systemPrompt;
   }
@@ -342,8 +333,6 @@ function createSettingsToSave(settings: Settings): SettingsToSave {
 
 function parseContentExtractorProvider(
   value: unknown,
-  firecrawlApiKey: string | undefined,
-  firecrawlBaseUrl: string | undefined,
 ): ContentExtractorProvider {
   if (
     typeof value === "string" &&
@@ -352,11 +341,7 @@ function parseContentExtractorProvider(
     return value as ContentExtractorProvider;
   }
 
-  const hasFirecrawlConfig = Boolean(
-    firecrawlApiKey?.trim() || firecrawlBaseUrl?.trim(),
-  );
-
-  return hasFirecrawlConfig ? "firecrawl" : DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
+  return DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
 }
 
 /**
@@ -368,8 +353,6 @@ export async function getSettings(): Promise<Settings> {
       ...SETTINGS_STORAGE_KEYS,
     ])) as StoredSettings;
 
-    const firecrawlApiKey = getStringValue(result.firecrawlApiKey);
-    const firecrawlBaseUrl = getStringValue(result.firecrawlBaseUrl);
     const llmSettings = resolveStoredLlmSettings(result);
     const slackWebhookUrl = getStringValue(result.slackWebhookUrl);
     const tavilyApiKey = getStringValue(result.tavilyApiKey);
@@ -388,14 +371,10 @@ export async function getSettings(): Promise<Settings> {
         DEFAULT_ALARM_INTERVAL_MINUTES,
       contentExtractorProvider: parseContentExtractorProvider(
         result.contentExtractorProvider,
-        firecrawlApiKey,
-        firecrawlBaseUrl,
       ),
-      firecrawlBaseUrl: firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
       ...llmSettings,
       ...(slackWebhookUrl !== undefined ? { slackWebhookUrl } : {}),
       ...(tavilyApiKey !== undefined ? { tavilyApiKey } : {}),
-      ...(firecrawlApiKey !== undefined ? { firecrawlApiKey } : {}),
       ...(systemPrompt !== undefined ? { systemPrompt } : {}),
     });
   } catch (error) {
@@ -568,27 +547,6 @@ export function validateSettings(settings: Partial<Settings>): {
     !normalizedSettings.tavilyApiKey?.trim()
   ) {
     errors.push("Tavily APIキーを入力してください");
-  }
-
-  if (
-    effectiveProvider === "firecrawl" &&
-    !normalizedSettings.firecrawlApiKey?.trim()
-  ) {
-    errors.push("Firecrawl APIキーを入力してください");
-  }
-
-  if (
-    normalizedSettings.firecrawlBaseUrl !== undefined &&
-    normalizedSettings.firecrawlBaseUrl.trim() !== ""
-  ) {
-    try {
-      const url = new URL(normalizedSettings.firecrawlBaseUrl);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        errors.push("Firecrawl Base URLはhttpまたはhttpsで指定してください");
-      }
-    } catch {
-      errors.push("Firecrawl Base URLは有効なURLで入力してください");
-    }
   }
 
   validateLlmSettings(normalizedSettings, errors, selectedState);

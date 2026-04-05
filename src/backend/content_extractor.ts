@@ -1,14 +1,21 @@
 import { readable } from "@mizchi/readability";
-import { DEFAULT_TAVILY_BASE_URL } from "../common/constants";
+import {
+  type ContentExtractorProvider,
+  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
+  DEFAULT_TAVILY_BASE_URL,
+} from "../common/constants";
 
 export type ExtractContentOutcome =
   | "local-success"
+  | "tavily-success"
   | "tavily-fallback-success"
   | "local-failed-no-fallback"
+  | "tavily-only-failed"
   | "tavily-fallback-failed";
 
 export type ExtractAttemptKind =
   | "local-success"
+  | "configuration-missing"
   | "fetch-blocked"
   | "fetch-failed"
   | "parse-failed"
@@ -30,13 +37,16 @@ export type ExtractContentResult =
       content: string;
       title?: string;
       source: "local" | "tavily";
-      outcome: "local-success" | "tavily-fallback-success";
+      outcome: "local-success" | "tavily-success" | "tavily-fallback-success";
       attempts: ExtractAttempt[];
     }
   | {
       success: false;
       error: string;
-      outcome: "local-failed-no-fallback" | "tavily-fallback-failed";
+      outcome:
+        | "local-failed-no-fallback"
+        | "tavily-only-failed"
+        | "tavily-fallback-failed";
       attempts: ExtractAttempt[];
     };
 
@@ -45,6 +55,7 @@ export interface TavilyConfig {
 }
 
 export interface ExtractContentConfig {
+  mode?: ContentExtractorProvider;
   tavily?: TavilyConfig;
 }
 
@@ -157,8 +168,20 @@ export async function extractContent(
   url: string,
   config: ExtractContentConfig,
 ): Promise<ExtractContentResult> {
-  console.log(`本文抽出開始: ${url} (mode=local-first)`);
+  const mode = config.mode ?? DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
+  console.log(`本文抽出開始: ${url} (mode=${mode})`);
 
+  if (mode === "tavily") {
+    return extractWithTavilyOnly(url, config);
+  }
+
+  return extractLocallyWithTavilyFallback(url, config);
+}
+
+async function extractLocallyWithTavilyFallback(
+  url: string,
+  config: ExtractContentConfig,
+): Promise<ExtractContentResult> {
   const attempts: ExtractAttempt[] = [];
   const localResult = await extractLocally(url);
   attempts.push(localResult.attempt);
@@ -182,11 +205,13 @@ export async function extractContent(
 
   const tavilyApiKey = config.tavily?.apiKey?.trim();
   if (!tavilyApiKey) {
+    const fallbackError =
+      "Tavily API キーが未設定のためフォールバックできません。";
     attempts.push({
       source: "tavily",
       success: false,
       kind: "fallback-unavailable",
-      error: "Tavily API キーが未設定のためフォールバックできません。",
+      error: fallbackError,
     });
 
     const result: ExtractContentResult = {
@@ -236,6 +261,75 @@ export async function extractContent(
       success: false,
       error: `ローカル抽出と Tavily フォールバックの両方に失敗しました。local=${localResult.attempt.error}; tavily=${fallbackError}`,
       outcome: "tavily-fallback-failed",
+      attempts,
+    };
+    console.error(
+      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
+    );
+    return result;
+  }
+}
+
+async function extractWithTavilyOnly(
+  url: string,
+  config: ExtractContentConfig,
+): Promise<ExtractContentResult> {
+  const attempts: ExtractAttempt[] = [];
+  const tavilyApiKey = config.tavily?.apiKey?.trim();
+  if (!tavilyApiKey) {
+    const configError = "Tavily API キーが未設定のため本文抽出できません。";
+    attempts.push({
+      source: "tavily",
+      success: false,
+      kind: "configuration-missing",
+      error: configError,
+    });
+
+    const result: ExtractContentResult = {
+      success: false,
+      error: configError,
+      outcome: "tavily-only-failed",
+      attempts,
+    };
+    console.error(
+      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
+    );
+    return result;
+  }
+
+  try {
+    const tavilyResult = await retryWithExponentialBackoff(() =>
+      extractWithTavily(url, { apiKey: tavilyApiKey }),
+    );
+    attempts.push({
+      source: "tavily",
+      success: true,
+      kind: "tavily-success",
+    });
+
+    const result: ExtractContentResult = {
+      success: true,
+      content: tavilyResult.content,
+      title: tavilyResult.title,
+      source: "tavily",
+      outcome: "tavily-success",
+      attempts,
+    };
+    console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
+    return result;
+  } catch (error) {
+    const tavilyError = normalizeErrorMessage(error);
+    attempts.push({
+      source: "tavily",
+      success: false,
+      kind: "tavily-failed",
+      error: tavilyError,
+    });
+
+    const result: ExtractContentResult = {
+      success: false,
+      error: `Tavily での本文抽出に失敗しました: ${tavilyError}`,
+      outcome: "tavily-only-failed",
       attempts,
     };
     console.error(
