@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { h, render } from "preact";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ContentExtractorTest } from "../../src/frontend/options/ContentExtractorTest";
 
-// Chrome extension APIs mock
 const mockChromeStorage = {
   local: {
     get: vi.fn(),
@@ -11,7 +12,6 @@ const mockChromeRuntime = {
   sendMessage: vi.fn(),
 };
 
-// Mock partial Chrome API for testing
 Object.assign(globalThis, {
   chrome: {
     storage: mockChromeStorage,
@@ -19,64 +19,124 @@ Object.assign(globalThis, {
   },
 });
 
-describe("Options page", () => {
-  afterEach(() => {
+function flushPromises(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("ContentExtractorTest", () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
     vi.clearAllMocks();
   });
 
-  it("should pass", () => {
-    expect(true).toBe(true);
+  afterEach(() => {
+    render(null, container);
+    container.remove();
   });
 
-  describe("ContentExtractorTest Slack posting", () => {
-    it("should handle Slack webhook URL not configured", async () => {
-      // Mock storage to return no slack webhook URL
-      mockChromeStorage.local.get.mockResolvedValue({});
+  it("ローカル抽出優先とTavilyフォールバックの説明を表示する", () => {
+    render(h(ContentExtractorTest, { provider: "tavily" }), container);
 
-      const { ContentExtractorTest } = await import(
-        "../../src/frontend/options/ContentExtractorTest"
-      );
+    expect(container.textContent).toContain("コンテンツ抽出テスト");
+    expect(container.textContent).toContain(
+      "まず拡張機能内でHTMLを取得して本文を抽出し、失敗時のみTavily APIキーが設定されていればフォールバックします。",
+    );
+  });
 
-      // This test verifies the component can be imported without errors
-      // More detailed testing would require DOM setup with jsdom
-      expect(ContentExtractorTest).toBeDefined();
-    });
-
-    it("should handle successful Slack test message", async () => {
-      // Mock storage to return slack webhook URL
-      mockChromeStorage.local.get.mockResolvedValue({
-        slackWebhookUrl: "https://hooks.slack.com/test",
-      });
-
-      // Mock successful response from background script
-      mockChromeRuntime.sendMessage.mockResolvedValue({
+  it("ローカル抽出成功後に要約を実行する", async () => {
+    mockChromeRuntime.sendMessage
+      .mockResolvedValueOnce({
         success: true,
+        content: "# Local Title\n\n本文",
+        title: "Local Title",
+        source: "local",
+        outcome: "local-success",
+        attempts: [
+          {
+            source: "local",
+            success: true,
+            kind: "local-success",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        summary: "要約1\n\n要約2\n\n要約3",
+        modelName: "gpt-4o-mini",
       });
 
-      const { ContentExtractorTest } = await import(
-        "../../src/frontend/options/ContentExtractorTest"
-      );
+    render(h(ContentExtractorTest, { provider: "tavily" }), container);
 
-      expect(ContentExtractorTest).toBeDefined();
+    const input = container.querySelector("input[type='url']");
+
+    expect(input).toBeTruthy();
+
+    (input as HTMLInputElement).value = "https://example.com/article";
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushPromises();
+
+    const button = container.querySelector("button");
+
+    expect(button).toBeTruthy();
+
+    button?.click();
+    await flushPromises();
+
+    expect(mockChromeRuntime.sendMessage).toHaveBeenNthCalledWith(1, {
+      type: "EXTRACT_CONTENT",
+      url: "https://example.com/article",
+    });
+    expect(mockChromeRuntime.sendMessage).toHaveBeenNthCalledWith(2, {
+      type: "SUMMARIZE_TEST",
+      title: "example.com",
+      url: "https://example.com/article",
+      content: "# Local Title\n\n本文",
+    });
+    expect(container.textContent).toContain("✓ ローカル抽出成功");
+    expect(container.textContent).toContain("✓ 要約成功");
+  });
+
+  it("Tavilyキー未設定のローカル失敗では要約を実行しない", async () => {
+    mockChromeRuntime.sendMessage.mockResolvedValueOnce({
+      success: false,
+      error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+      outcome: "local-failed-no-fallback",
+      attempts: [
+        {
+          source: "local",
+          success: false,
+          kind: "fetch-blocked",
+          error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+          status: 403,
+        },
+        {
+          source: "tavily",
+          success: false,
+          kind: "fallback-unavailable",
+          error: "Tavily API キーが未設定のためフォールバックできません。",
+        },
+      ],
     });
 
-    it("should handle Slack test message error", async () => {
-      // Mock storage to return slack webhook URL
-      mockChromeStorage.local.get.mockResolvedValue({
-        slackWebhookUrl: "https://hooks.slack.com/test",
-      });
+    render(h(ContentExtractorTest, { provider: "tavily" }), container);
 
-      // Mock error response from background script
-      mockChromeRuntime.sendMessage.mockResolvedValue({
-        success: false,
-        error: "Network error",
-      });
+    const input = container.querySelector("input[type='url']");
 
-      const { ContentExtractorTest } = await import(
-        "../../src/frontend/options/ContentExtractorTest"
-      );
+    (input as HTMLInputElement).value = "https://example.com/article";
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushPromises();
 
-      expect(ContentExtractorTest).toBeDefined();
-    });
+    const button = container.querySelector("button");
+
+    expect(button).toBeTruthy();
+
+    button?.click();
+    await flushPromises();
+
+    expect(mockChromeRuntime.sendMessage).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("✗ ローカル抽出失敗");
   });
 });

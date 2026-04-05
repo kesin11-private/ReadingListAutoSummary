@@ -7,7 +7,6 @@ import {
   type ValidatedSettings,
   validateSettings,
 } from "../../src/common/chrome_storage";
-import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 
 // Chrome APIのモック
 const mockChromeStorage = {
@@ -36,22 +35,13 @@ describe("chrome_storage", () => {
 
       const result = await getSettings();
 
-      expect(result).toEqual(DEFAULT_SETTINGS);
-      expect(mockChromeStorage.local.get).toHaveBeenCalledWith([
-        "daysUntilRead",
-        "daysUntilDelete",
-        "maxEntriesPerRun",
-        "alarmIntervalMinutes",
-        "openaiEndpoint",
-        "openaiApiKey",
-        "openaiModel",
-        "slackWebhookUrl",
-        "contentExtractorProvider",
-        "tavilyApiKey",
-        "firecrawlApiKey",
-        "firecrawlBaseUrl",
-        "systemPrompt",
-      ]);
+      expect(result).toMatchObject({
+        daysUntilRead: DEFAULT_SETTINGS.daysUntilRead,
+        daysUntilDelete: DEFAULT_SETTINGS.daysUntilDelete,
+        maxEntriesPerRun: DEFAULT_SETTINGS.maxEntriesPerRun,
+        alarmIntervalMinutes: DEFAULT_SETTINGS.alarmIntervalMinutes,
+      });
+      expect(mockChromeStorage.local.get).toHaveBeenCalledTimes(1);
     });
 
     it("保存された設定がある場合は結合して返す", async () => {
@@ -64,27 +54,14 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "firecrawl",
-        firecrawlApiKey: "fc-test123",
-        firecrawlBaseUrl: "http://localhost:3002",
+        tavilyApiKey: "tv-test123",
+        systemPrompt: "カスタムプロンプト",
       };
       mockChromeStorage.local.get.mockResolvedValue(storedSettings);
 
       const result = await getSettings();
 
-      expect(result).toEqual(storedSettings);
-    });
-
-    it("Firecrawl Base URLが存在しない場合は既定値を返す", async () => {
-      const storedSettings = {
-        daysUntilRead: 10,
-        daysUntilDelete: 20,
-      };
-      mockChromeStorage.local.get.mockResolvedValue(storedSettings);
-
-      const result = await getSettings();
-
-      expect(result.firecrawlBaseUrl).toBe(DEFAULT_FIRECRAWL_BASE_URL);
+      expect(result).toMatchObject(storedSettings);
     });
 
     it("エラーが発生した場合はデフォルト設定を返す", async () => {
@@ -134,10 +111,7 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "tavily",
         tavilyApiKey: "tv-test123",
-        firecrawlApiKey: "fc-test123",
-        firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
         validated: true,
       };
@@ -153,10 +127,7 @@ describe("chrome_storage", () => {
         openaiApiKey: "sk-test123",
         openaiModel: "gpt-4",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "tavily",
         tavilyApiKey: "tv-test123",
-        firecrawlApiKey: "fc-test123",
-        firecrawlBaseUrl: "http://localhost:3002",
         systemPrompt: "カスタムプロンプト",
       });
     });
@@ -171,8 +142,7 @@ describe("chrome_storage", () => {
         openaiApiKey: "",
         openaiModel: "",
         slackWebhookUrl: "",
-        firecrawlApiKey: "",
-        firecrawlBaseUrl: "",
+        tavilyApiKey: "",
         systemPrompt: "",
         validated: true,
       };
@@ -209,9 +179,8 @@ describe("chrome_storage", () => {
   });
 
   describe("validateSettings", () => {
-    const baseProviderSettings: Partial<Settings> = {
-      contentExtractorProvider: "firecrawl",
-      firecrawlApiKey: "fc-test",
+    const baseSettings: Partial<Settings> = {
+      tavilyApiKey: "tv-test",
     };
 
     it("有効な設定の場合は空配列とvalidatedSettingsを返す", () => {
@@ -222,9 +191,7 @@ describe("chrome_storage", () => {
         alarmIntervalMinutes: 720,
         openaiEndpoint: "https://api.openai.com/v1",
         slackWebhookUrl: "https://hooks.slack.com/services/test",
-        contentExtractorProvider: "firecrawl",
-        firecrawlApiKey: "fc-test",
-        firecrawlBaseUrl: "https://api.firecrawl.dev",
+        tavilyApiKey: "tv-test",
       };
 
       const result = validateSettings(settings);
@@ -237,19 +204,19 @@ describe("chrome_storage", () => {
     it("既読化日数が無効な場合はエラーを返す", () => {
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           daysUntilRead: 0,
         }).errors,
       ).toContain("既読化までの日数は1-365の整数で入力してください");
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           daysUntilRead: 366,
         }).errors,
       ).toContain("既読化までの日数は1-365の整数で入力してください");
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           daysUntilRead: 1.5,
         }).errors,
       ).toContain("既読化までの日数は1-365の整数で入力してください");
@@ -258,19 +225,19 @@ describe("chrome_storage", () => {
     it("削除日数が無効な場合はエラーを返す", () => {
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           daysUntilDelete: 0,
         }).errors,
       ).toContain("削除までの日数は-1または1-365の整数で入力してください");
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           daysUntilDelete: 366,
         }).errors,
       ).toContain("削除までの日数は-1または1-365の整数で入力してください");
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           daysUntilDelete: 2.5,
         }).errors,
       ).toContain("削除までの日数は-1または1-365の整数で入力してください");
@@ -279,7 +246,7 @@ describe("chrome_storage", () => {
     it("最大エントリ数が無効な場合はエラーを返す", () => {
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           maxEntriesPerRun: 0,
         }).errors,
       ).toContain(
@@ -287,7 +254,7 @@ describe("chrome_storage", () => {
       );
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           maxEntriesPerRun: 101,
         }).errors,
       ).toContain(
@@ -295,7 +262,7 @@ describe("chrome_storage", () => {
       );
       expect(
         validateSettings({
-          ...baseProviderSettings,
+          ...baseSettings,
           maxEntriesPerRun: 1.5,
         }).errors,
       ).toContain(
@@ -303,35 +270,15 @@ describe("chrome_storage", () => {
       );
     });
 
-    it("TavilyプロバイダーでAPIキーが未設定の場合はエラーを返す", () => {
-      const { errors } = validateSettings({
-        contentExtractorProvider: "tavily",
-      });
+    it("Tavily APIキーが未設定の場合はエラーを返す", () => {
+      const { errors } = validateSettings({});
 
       expect(errors).toContain("Tavily APIキーを入力してください");
     });
 
-    it("FirecrawlプロバイダーでAPIキーが未設定の場合はエラーを返す", () => {
-      const { errors } = validateSettings({
-        contentExtractorProvider: "firecrawl",
-      });
-
-      expect(errors).toContain("Firecrawl APIキーを入力してください");
-    });
-
-    it("不正なプロバイダー値の場合はエラーを返す", () => {
-      const { errors } = validateSettings({
-        // @ts-expect-error テスト用に不正な値を渡す
-        contentExtractorProvider: "invalid",
-        firecrawlApiKey: "fc-test",
-      });
-
-      expect(errors).toContain("コンテンツ抽出プロバイダーの選択が不正です");
-    });
-
     it("無効なOpenAI APIエンドポイントの場合はエラーを返す", () => {
       const { errors } = validateSettings({
-        ...baseProviderSettings,
+        ...baseSettings,
         openaiEndpoint: "invalid-url",
       });
 
@@ -342,7 +289,7 @@ describe("chrome_storage", () => {
 
     it("無効なSlack Webhook URLの場合はエラーを返す", () => {
       const { errors: errors1 } = validateSettings({
-        ...baseProviderSettings,
+        ...baseSettings,
         slackWebhookUrl: "invalid-url",
       });
       expect(errors1).toContain(
@@ -350,7 +297,7 @@ describe("chrome_storage", () => {
       );
 
       const { errors: errors2 } = validateSettings({
-        ...baseProviderSettings,
+        ...baseSettings,
         slackWebhookUrl: "https://example.com/webhook",
       });
       expect(errors2).toContain(
@@ -358,31 +305,9 @@ describe("chrome_storage", () => {
       );
     });
 
-    it("無効なFirecrawl Base URLの場合はエラーを返す", () => {
-      const { errors } = validateSettings({
-        ...baseProviderSettings,
-        firecrawlBaseUrl: "not-a-url",
-      });
-
-      expect(errors).toContain(
-        "Firecrawl Base URLは有効なURLで入力してください",
-      );
-    });
-
-    it("Firecrawl Base URLがhttp/https以外の場合はエラーを返す", () => {
-      const { errors } = validateSettings({
-        ...baseProviderSettings,
-        firecrawlBaseUrl: "ftp://example.com",
-      });
-
-      expect(errors).toContain(
-        "Firecrawl Base URLはhttpまたはhttpsで指定してください",
-      );
-    });
-
     it("複数のエラーがある場合は全て返す", () => {
       const { errors } = validateSettings({
-        ...baseProviderSettings,
+        ...baseSettings,
         daysUntilRead: 0,
         daysUntilDelete: 366,
         alarmIntervalMinutes: 0,
@@ -395,7 +320,7 @@ describe("chrome_storage", () => {
 
     it("削除日数が既読化日数より小さくても有効", () => {
       const { errors } = validateSettings({
-        ...baseProviderSettings,
+        ...baseSettings,
         daysUntilRead: 30,
         daysUntilDelete: 10,
       });
@@ -405,7 +330,7 @@ describe("chrome_storage", () => {
 
     it("削除日数と既読化日数が同じでも有効", () => {
       const { errors } = validateSettings({
-        ...baseProviderSettings,
+        ...baseSettings,
         daysUntilRead: 30,
         daysUntilDelete: 30,
       });

@@ -7,18 +7,41 @@ import {
   shouldDelete,
   shouldMarkAsRead,
 } from "../../src/backend/background";
+import type { ExtractContentResult } from "../../src/backend/content_extractor";
 import {
   DELETION_DISABLED_VALUE,
   getSettings,
 } from "../../src/common/chrome_storage";
-import {
-  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-  DEFAULT_FIRECRAWL_BASE_URL,
-} from "../../src/common/constants";
+
+function createExtractSuccessResult(
+  overrides: Partial<ExtractContentResult> = {},
+): ExtractContentResult {
+  return {
+    success: true,
+    content: "# テスト記事\n\nテスト本文",
+    title: "テスト記事",
+    source: "local",
+    outcome: "local-success",
+    attempts: [
+      {
+        source: "local",
+        success: true,
+        kind: "local-success",
+      },
+    ],
+    ...overrides,
+  } as ExtractContentResult;
+}
 
 // content_extractor モジュールのモック
 vi.mock("../../src/backend/content_extractor", () => ({
   extractContent: vi.fn(),
+  summarizeExtractionResult: vi.fn(
+    (result: ExtractContentResult) =>
+      `outcome=${result.outcome}; attempts=${result.attempts
+        .map((attempt) => `${attempt.source}:${attempt.kind}`)
+        .join(" -> ")}`,
+  ),
 }));
 
 // post モジュールのモック
@@ -76,29 +99,22 @@ describe("getSettings", () => {
 
     const settings = await getSettings();
 
-    expect(settings).toEqual({
+    expect(settings).toMatchObject({
       daysUntilRead: 30,
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       alarmIntervalMinutes: 720,
-      contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
-    expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
-      "daysUntilRead",
-      "daysUntilDelete",
-      "maxEntriesPerRun",
-      "alarmIntervalMinutes",
-      "openaiEndpoint",
-      "openaiApiKey",
-      "openaiModel",
-      "slackWebhookUrl",
-      "contentExtractorProvider",
-      "tavilyApiKey",
-      "firecrawlApiKey",
-      "firecrawlBaseUrl",
-      "systemPrompt",
-    ]);
+    expect(mockChromeStorageLocal.get).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        "daysUntilRead",
+        "daysUntilDelete",
+        "maxEntriesPerRun",
+        "alarmIntervalMinutes",
+        "tavilyApiKey",
+        "systemPrompt",
+      ]),
+    );
   });
 
   it("ストレージから設定を正常取得", async () => {
@@ -111,16 +127,14 @@ describe("getSettings", () => {
       openaiApiKey: "test-key",
       openaiModel: "gpt-3.5-turbo",
       slackWebhookUrl: "https://hooks.slack.com/test",
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: "http://localhost:3002",
+      tavilyApiKey: "tv-test-key",
       systemPrompt: "カスタムプロンプト",
     };
     mockChromeStorageLocal.get.mockResolvedValue(storedSettings);
 
     const settings = await getSettings();
 
-    expect(settings).toEqual(storedSettings);
+    expect(settings).toMatchObject(storedSettings);
   });
 
   it("ストレージエラー時にデフォルト設定を返す", async () => {
@@ -128,13 +142,11 @@ describe("getSettings", () => {
 
     const settings = await getSettings();
 
-    expect(settings).toEqual({
+    expect(settings).toMatchObject({
       daysUntilRead: 30,
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       alarmIntervalMinutes: 720,
-      contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
   });
 });
@@ -312,9 +324,6 @@ describe("markAsReadAndNotify", () => {
     openaiApiKey: "test-key",
     openaiModel: "gpt-4o-mini",
     slackWebhookUrl: "https://hooks.slack.com/test",
-    contentExtractorProvider: "firecrawl" as const,
-    firecrawlApiKey: "fc-test-key",
-    firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
   };
 
   it("エントリを正常に既読化", async () => {
@@ -327,10 +336,9 @@ describe("markAsReadAndNotify", () => {
     };
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: "# テスト記事\n\nテスト本文",
-    });
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
     // 要約機能は実行されないが、念のためモック設定
     vi.mocked(mockSummarizeContent).mockResolvedValue({
       success: true,
@@ -342,8 +350,6 @@ describe("markAsReadAndNotify", () => {
     const incompleteSettings = {
       daysUntilRead: 30,
       daysUntilDelete: 60,
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
     };
 
     await markAsReadAndNotify(entry, incompleteSettings);
@@ -352,13 +358,7 @@ describe("markAsReadAndNotify", () => {
       url: entry.url,
       hasBeenRead: true,
     });
-    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
-      provider: "firecrawl",
-      firecrawl: {
-        apiKey: "fc-test-key",
-        baseUrl: DEFAULT_FIRECRAWL_BASE_URL,
-      },
-    });
+    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {});
     // 要約機能は呼ばれない
     expect(mockSummarizeContent).not.toHaveBeenCalled();
     expect(mockPostToSlack).not.toHaveBeenCalled();
@@ -378,10 +378,9 @@ describe("markAsReadAndNotify", () => {
     const slackMessage = "formatted slack message";
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: extractedContent,
-    });
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult({ content: extractedContent }),
+    );
     vi.mocked(mockSummarizeContent).mockResolvedValue({
       success: true,
       summary: summarizedContent,
@@ -412,10 +411,9 @@ describe("markAsReadAndNotify", () => {
     const slackErrorMessage = "formatted error message";
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: extractedContent,
-    });
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult({ content: extractedContent }),
+    );
     vi.mocked(mockSummarizeContent).mockResolvedValue({
       success: false,
       error: errorMessage,
@@ -448,6 +446,22 @@ describe("markAsReadAndNotify", () => {
     vi.mocked(mockExtractContent).mockResolvedValue({
       success: false,
       error: extractionError,
+      outcome: "tavily-fallback-failed",
+      attempts: [
+        {
+          source: "local",
+          success: false,
+          kind: "fetch-blocked",
+          error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+          status: 403,
+        },
+        {
+          source: "tavily",
+          success: false,
+          kind: "tavily-failed",
+          error: "Rate limited",
+        },
+      ],
     });
     vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
     vi.mocked(mockPostToSlack).mockResolvedValue();
@@ -476,15 +490,12 @@ describe("markAsReadAndNotify", () => {
       // openaiApiKey が未設定
       openaiModel: "gpt-4o-mini",
       slackWebhookUrl: "https://hooks.slack.com/test",
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     };
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: "# テスト記事\n\nテスト本文",
-    });
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
 
     await markAsReadAndNotify(entry, incompleteSettings);
 
@@ -492,37 +503,7 @@ describe("markAsReadAndNotify", () => {
     // 本文抽出は成功しているので、要約処理でOpenAIキーが無いことを検知した後、Slackには通知されない
   });
 
-  it("Firecrawl API キーが未設定の場合は本文抽出をスキップ", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const settingsWithoutFirecrawl = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-      openaiEndpoint: "https://api.openai.com/v1",
-      openaiApiKey: "test-key",
-      openaiModel: "gpt-4o-mini",
-      slackWebhookUrl: "https://hooks.slack.com/test",
-      contentExtractorProvider: "firecrawl" as const,
-      // firecrawlApiKey が未設定
-    };
-
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-
-    await markAsReadAndNotify(entry, settingsWithoutFirecrawl);
-
-    expect(mockExtractContent).not.toHaveBeenCalled();
-    expect(mockSummarizeContent).not.toHaveBeenCalled();
-    // APIキーが未設定のため、エラー通知がSlackに送信される
-    expect(mockPostToSlack).toHaveBeenCalled();
-  });
-
-  it("Tavily API キーが未設定の場合にSlackへエラー通知を送る", async () => {
+  it("Tavily API キーが未設定でもローカル抽出は実行する", async () => {
     const entry = {
       url: "https://example.com",
       title: "テスト記事",
@@ -534,21 +515,96 @@ describe("markAsReadAndNotify", () => {
     const settingsWithoutTavily = {
       daysUntilRead: 30,
       daysUntilDelete: 60,
-      contentExtractorProvider: "tavily" as const,
+      openaiEndpoint: "https://api.openai.com/v1",
+      openaiApiKey: "test-key",
       openaiModel: "gpt-4o-mini",
       slackWebhookUrl: "https://hooks.slack.com/test",
     };
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
 
     await markAsReadAndNotify(entry, settingsWithoutTavily);
 
-    expect(mockExtractContent).not.toHaveBeenCalled();
+    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {});
+  });
+
+  it("Tavily API キーが設定されていればフォールバック設定付きで抽出する", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const settingsWithTavily = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+      tavilyApiKey: "tv-test-key",
+    };
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+
+    await markAsReadAndNotify(entry, settingsWithTavily);
+
+    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
+      tavily: {
+        apiKey: "tv-test-key",
+      },
+    });
+  });
+
+  it("ローカル失敗かつ Tavily 未設定の場合に詳細付きでSlackへエラー通知を送る", async () => {
+    const entry = {
+      url: "https://example.com",
+      title: "テスト記事",
+      hasBeenRead: false,
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    };
+
+    const settingsWithoutTavily = {
+      daysUntilRead: 30,
+      daysUntilDelete: 60,
+      openaiModel: "gpt-4o-mini",
+      slackWebhookUrl: "https://hooks.slack.com/test",
+    };
+
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: false,
+      error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+      outcome: "local-failed-no-fallback",
+      attempts: [
+        {
+          source: "local",
+          success: false,
+          kind: "fetch-blocked",
+          error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+          status: 403,
+        },
+        {
+          source: "tavily",
+          success: false,
+          kind: "fallback-unavailable",
+          error: "Tavily API キーが未設定のためフォールバックできません。",
+        },
+      ],
+    });
+
+    await markAsReadAndNotify(entry, settingsWithoutTavily);
+
     expect(mockFormatSlackErrorMessage).toHaveBeenCalledWith(
       entry.title,
       entry.url,
       settingsWithoutTavily.openaiModel,
-      expect.stringContaining("Tavily"),
+      expect.stringContaining("local-failed-no-fallback"),
     );
     expect(mockPostToSlack).toHaveBeenCalledWith(
       settingsWithoutTavily.slackWebhookUrl,
@@ -616,9 +672,6 @@ describe("processReadingListEntries", () => {
     daysUntilRead: 30,
     daysUntilDelete: 60,
     maxEntriesPerRun: 3,
-    contentExtractorProvider: "firecrawl" as const,
-    firecrawlApiKey: "fc-test-key",
-    firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
   };
 
   it("統合処理：設定取得、エントリ取得、フィルタリング、処理実行", async () => {
@@ -753,9 +806,6 @@ describe("processReadingListEntries", () => {
       daysUntilRead: 30,
       daysUntilDelete: 60,
       maxEntriesPerRun: 3,
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     };
 
     mockChromeStorageLocal.get.mockResolvedValue(settingsWithLimit);

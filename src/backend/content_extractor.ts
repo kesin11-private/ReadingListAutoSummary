@@ -1,53 +1,51 @@
+import { readable } from "@mizchi/readability";
 import { DEFAULT_TAVILY_BASE_URL } from "../common/constants";
+
+export type ExtractContentOutcome =
+  | "local-success"
+  | "tavily-fallback-success"
+  | "local-failed-no-fallback"
+  | "tavily-fallback-failed";
+
+export type ExtractAttemptKind =
+  | "local-success"
+  | "fetch-blocked"
+  | "fetch-failed"
+  | "parse-failed"
+  | "tavily-success"
+  | "tavily-failed"
+  | "fallback-unavailable";
+
+export interface ExtractAttempt {
+  source: "local" | "tavily";
+  success: boolean;
+  kind: ExtractAttemptKind;
+  error?: string;
+  status?: number;
+}
 
 export type ExtractContentResult =
   | {
       success: true;
       content: string;
       title?: string;
+      source: "local" | "tavily";
+      outcome: "local-success" | "tavily-fallback-success";
+      attempts: ExtractAttempt[];
     }
   | {
       success: false;
       error: string;
+      outcome: "local-failed-no-fallback" | "tavily-fallback-failed";
+      attempts: ExtractAttempt[];
     };
-
-export interface FirecrawlConfig {
-  apiKey: string;
-  baseUrl: string;
-}
 
 export interface TavilyConfig {
   apiKey: string;
 }
 
-export type ExtractContentConfig =
-  | {
-      provider: "firecrawl";
-      firecrawl: FirecrawlConfig;
-    }
-  | {
-      provider: "tavily";
-      tavily: TavilyConfig;
-    };
-
-interface FirecrawlV2Metadata {
-  title?: string;
-  description?: string;
-  language?: string;
-  sourceURL?: string;
-  statusCode?: number;
-  error?: string;
-}
-
-interface FirecrawlV2Data {
-  markdown?: string;
-  metadata?: FirecrawlV2Metadata;
-}
-
-interface FirecrawlV2Response {
-  success: boolean;
-  data?: FirecrawlV2Data;
-  warning?: string;
+export interface ExtractContentConfig {
+  tavily?: TavilyConfig;
 }
 
 interface TavilyExtractResult {
@@ -64,6 +62,18 @@ interface TavilyExtractResponse {
     error: string;
   }>;
 }
+
+type LocalExtractResult =
+  | {
+      success: true;
+      content: string;
+      title: string;
+      attempt: ExtractAttempt;
+    }
+  | {
+      success: false;
+      attempt: ExtractAttempt;
+    };
 
 /**
  * 指数バックオフでリトライを実行する汎用関数
@@ -88,7 +98,6 @@ async function retryWithExponentialBackoff<T>(
         break;
       }
 
-      // リトライ前に指数バックオフで待機
       const delay = baseDelay * 2 ** (attempt - 1);
       console.log(`${delay}ms 待機してリトライします...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -98,80 +107,239 @@ async function retryWithExponentialBackoff<T>(
   throw lastError;
 }
 
+function normalizeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function resolveFallbackTitle(url: string, title?: string): string {
+  if (title?.trim()) {
+    return title;
+  }
+
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function isBlockedStatus(status: number): boolean {
+  return status === 401 || status === 403 || status === 451;
+}
+
+function isFetchBlockedError(error: unknown): boolean {
+  const message = normalizeErrorMessage(error);
+  return (
+    error instanceof TypeError ||
+    /failed to fetch|networkerror|load failed|cors|access/i.test(message)
+  );
+}
+
+function formatAttempt(attempt: ExtractAttempt): string {
+  const status = attempt.status !== undefined ? `(${attempt.status})` : "";
+  const error = attempt.success || !attempt.error ? "" : `:${attempt.error}`;
+  return `${attempt.source}:${attempt.kind}${status}${error}`;
+}
+
+export function summarizeExtractionResult(
+  result: ExtractContentResult,
+): string {
+  return `outcome=${result.outcome}; attempts=${result.attempts
+    .map(formatAttempt)
+    .join(" -> ")}`;
+}
+
 /**
- * Firecrawl APIを使用してURLから本文を抽出
- * 失敗時は指数バックオフで最大3回までリトライ
+ * URLから本文を抽出する。ローカルHTML取得 + readability を優先し、
+ * 失敗時のみ Tavily Extract API にフォールバックする。
  */
 export async function extractContent(
   url: string,
   config: ExtractContentConfig,
 ): Promise<ExtractContentResult> {
-  console.log(`本文抽出開始: ${url} (provider=${config.provider})`);
+  console.log(`本文抽出開始: ${url} (mode=local-first)`);
 
-  try {
-    const result = await retryWithExponentialBackoff(async () => {
-      if (config.provider === "firecrawl") {
-        return extractWithFirecrawl(url, config.firecrawl);
-      }
+  const attempts: ExtractAttempt[] = [];
+  const localResult = await extractLocally(url);
+  attempts.push(localResult.attempt);
 
-      return extractWithTavily(url, config.tavily);
+  if (localResult.success) {
+    const result: ExtractContentResult = {
+      success: true,
+      content: localResult.content,
+      title: localResult.title,
+      source: "local",
+      outcome: "local-success",
+      attempts,
+    };
+    console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
+    return result;
+  }
+
+  console.warn(
+    `ローカル抽出失敗: ${url} (${localResult.attempt.kind}) - ${localResult.attempt.error}`,
+  );
+
+  const tavilyApiKey = config.tavily?.apiKey?.trim();
+  if (!tavilyApiKey) {
+    attempts.push({
+      source: "tavily",
+      success: false,
+      kind: "fallback-unavailable",
+      error: "Tavily API キーが未設定のためフォールバックできません。",
     });
 
-    console.log(`本文抽出成功: ${url} (文字数: ${result.content.length})`);
-    return {
-      success: true,
-      content: result.content,
-      title: result.title,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(
-      `本文抽出失敗: ${url} (provider=${config.provider}) - ${errorMessage}`,
-    );
-    return {
+    const result: ExtractContentResult = {
       success: false,
-      error: errorMessage,
+      error:
+        localResult.attempt.error ||
+        "ローカル抽出に失敗し、Tavilyフォールバックも利用できません。",
+      outcome: "local-failed-no-fallback",
+      attempts,
     };
+    console.error(
+      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
+    );
+    return result;
+  }
+
+  try {
+    const fallbackResult = await retryWithExponentialBackoff(() =>
+      extractWithTavily(url, { apiKey: tavilyApiKey }),
+    );
+    attempts.push({
+      source: "tavily",
+      success: true,
+      kind: "tavily-success",
+    });
+
+    const result: ExtractContentResult = {
+      success: true,
+      content: fallbackResult.content,
+      title: fallbackResult.title,
+      source: "tavily",
+      outcome: "tavily-fallback-success",
+      attempts,
+    };
+    console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
+    return result;
+  } catch (error) {
+    const fallbackError = normalizeErrorMessage(error);
+    attempts.push({
+      source: "tavily",
+      success: false,
+      kind: "tavily-failed",
+      error: fallbackError,
+    });
+
+    const result: ExtractContentResult = {
+      success: false,
+      error: `ローカル抽出と Tavily フォールバックの両方に失敗しました。local=${localResult.attempt.error}; tavily=${fallbackError}`,
+      outcome: "tavily-fallback-failed",
+      attempts,
+    };
+    console.error(
+      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
+    );
+    return result;
   }
 }
 
-async function extractWithFirecrawl(
-  url: string,
-  config: FirecrawlConfig,
-): Promise<{ content: string; title: string }> {
-  console.log(`Firecrawl API呼び出し: ${url}`);
+async function extractLocally(url: string): Promise<LocalExtractResult> {
+  console.log(`ローカルHTML取得開始: ${url}`);
 
-  const endpoint = new URL("/v2/scrape", config.baseUrl).toString();
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+  } catch (error) {
+    const kind = isFetchBlockedError(error) ? "fetch-blocked" : "fetch-failed";
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url,
-      formats: ["markdown"],
-      onlyMainContent: true,
-    }),
-  });
+    return {
+      success: false,
+      attempt: {
+        source: "local",
+        success: false,
+        kind,
+        error: `ローカルHTML取得に失敗しました: ${normalizeErrorMessage(error)}`,
+      },
+    };
+  }
 
   if (!response.ok) {
-    throw new Error(
-      `Firecrawl API error: ${response.status} ${response.statusText}`,
-    );
+    const kind = isBlockedStatus(response.status)
+      ? "fetch-blocked"
+      : "fetch-failed";
+
+    return {
+      success: false,
+      attempt: {
+        source: "local",
+        success: false,
+        kind,
+        error: `ローカルHTML取得に失敗しました: ${response.status} ${response.statusText}`,
+        status: response.status,
+      },
+    };
   }
 
-  const apiResponse: FirecrawlV2Response = await response.json();
-
-  if (!apiResponse?.data?.markdown) {
-    throw new Error("抽出された本文が空です");
+  const html = await response.text();
+  if (!html.trim()) {
+    return {
+      success: false,
+      attempt: {
+        source: "local",
+        success: false,
+        kind: "parse-failed",
+        error: "取得したHTMLが空のため本文抽出できません。",
+      },
+    };
   }
 
-  return {
-    content: apiResponse.data.markdown,
-    title: apiResponse.data.metadata?.title || new URL(url).hostname,
-  };
+  try {
+    const result = readable(html, {
+      url,
+      charThreshold: 20,
+    });
+    const content = result.toMarkdown().trim();
+    if (!content) {
+      const pageType = result.pageType === "article" ? "article" : "other";
+      return {
+        success: false,
+        attempt: {
+          source: "local",
+          success: false,
+          kind: "parse-failed",
+          error: `readabilityで本文抽出できませんでした (pageType=${pageType})`,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      content,
+      title: resolveFallbackTitle(url, result.snapshot.metadata.title),
+      attempt: {
+        source: "local",
+        success: true,
+        kind: "local-success",
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      attempt: {
+        source: "local",
+        success: false,
+        kind: "parse-failed",
+        error: `readability解析に失敗しました: ${normalizeErrorMessage(error)}`,
+      },
+    };
+  }
 }
 
 async function extractWithTavily(
@@ -211,6 +379,6 @@ async function extractWithTavily(
 
   return {
     content: result.raw_content,
-    title: result.title || new URL(url).hostname,
+    title: resolveFallbackTitle(url, result.title),
   };
 }

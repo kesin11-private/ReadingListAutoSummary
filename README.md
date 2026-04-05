@@ -1,97 +1,101 @@
 # ReadingListAutoSummary
-Automatically mark old entries as read in Chrome’s Reading List and generate AI-powered summaries before archiving.
 
-## 概要
+Chrome の Reading List を定期処理し、古い未読記事を既読化しながら本文を要約して Slack に送る拡張です。
 
-ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`chrome.readingList` API）を活用し、一定期間経過したエントリを自動既読化・自動削除します。  
-さらに、既読化のタイミングでエントリ本文を要約し、Slackへ自動投稿します。
+## 主な機能
 
-## 主な特徴・機能
+- 未読記事を一定日数経過後に自動で既読化
+- 既読記事を一定日数経過後に自動削除（無効化も可）
+- 記事本文を **ローカル HTML 取得 + `@mizchi/readability`** で優先抽出
+- ローカル抽出が失敗した場合のみ、**Tavily Extract API** に任意でフォールバック
+- OpenAI 互換 API で 3 文・約 600 文字の要約を生成
+- Slack Webhook に要約または失敗内容を投稿
 
-- **Chromeリーディングリスト連携**  
-  Chrome標準APIによるリーディングリストの自動管理（既読化・削除）
+## 本文抽出の挙動
 
-- **既読化・削除の自動化**  
-  - 未読エントリは「既読化までの日数」（デフォルト：30日）経過で自動既読化
-  - 既読エントリは「削除までの日数」（デフォルト：60日）経過で自動削除
-  - 期間はオプション画面で設定可能
+本文抽出はローカル優先です。
 
-- **要約生成・Slack投稿**  
-  - 既読化のタイミングで、エントリの「タイトル」「URL」「本文」を要約
-  - 本文はTavily Extract APIもしくはFirecrawlのScrape APIから抽出（オプション画面で切り替え可能）
-  - LLM（OpenAI SDK/OpenAI互換API）で3文・600文字以内に要約
-  - 要約結果をSlack Webhook URL経由で自動投稿
+1. 拡張機能が対象 URL の HTML を直接取得します
+2. `@mizchi/readability` で本文を Markdown 化します
+3. ローカル取得・解析に失敗し、かつ Tavily API キーが設定されている場合のみ Tavily にフォールバックします
+4. Tavily API キーが未設定なら、ローカル抽出のみで完結します
 
-- **設定管理**  
-  - オプション画面で下記項目を設定・保存（`chrome.storage.local`利用）
-    - 既読化までの日数（デフォルト：30日）
-    - 削除までの日数（デフォルト：60日）
-    - OpenAI互換APIエンドポイント
-    - APIキー
-    - モデル名
-    - Slack Webhook URL
-  - コンテンツ抽出プロバイダー（Tavily / Firecrawl）
-  - Tavily API キー
-  - Firecrawl API キー
-  - Firecrawl Base URL（デフォルト: https://api.firecrawl.dev）
+このため通常運用では追加の抽出プロバイダー設定は不要で、Tavily は失敗時の保険として使えます。
 
-- **ユーザーインターフェース**  
-  - 基本的にUIは不要
-  - 設定のためのオプション画面のみ
-  - 実行履歴やエラーはChrome拡張のコンソールへデバッグログ出力
+## Chrome 権限
+
+ローカルで記事 HTML を取得するため、manifest では広めのホスト権限を使います。
+
+- `https://*/*`
+- `http://*/*`
+- `https://hooks.slack.com/*`
+
+通常の拡張権限は以下です。
+
+- `storage`
+- `readingList`
+- `alarms`
+
+## 設定項目
+
+オプション画面では主に以下を設定します。
+
+- 既読化までの日数
+- 削除までの日数
+- 1 回の実行で既読にする最大件数
+- 実行間隔（分）
+- OpenAI 互換 API エンドポイント
+- OpenAI API キー
+- モデル名
+- Slack Webhook URL
+- Tavily API キー（任意）
+- システムプロンプト
 
 ## 処理フロー
 
-1. **定期処理（バックグラウンドスクリプト）**
-    - Chromeリーディングリストからエントリ取得
-    - 未読エントリの登録日時をチェックし、規定日数経過で既読化
-    - 既読化時に選択中のコンテンツ抽出プロバイダーから本文を取得
-    - 本文・タイトル・URLをOpenAI互換APIで要約（3文・600文字以内）
-    - Slack Webhookへ指定フォーマットで投稿
-    - 既読エントリの既読化日時をチェックし、規定日数経過で自動削除
+1. `chrome.readingList` から記事一覧を取得
+2. 既読化対象の記事を古い順に処理
+3. 記事本文をローカル抽出し、必要時のみ Tavily にフォールバック
+4. 要約を生成して Slack に投稿
+5. 削除対象の既読記事を削除
 
-2. **本文抽出・要約失敗時の挙動**
-    - 本文抽出やLLM要約が失敗した場合、指数バックオフ（exponential backoff）で最大3回までリトライ
-    - リトライしても失敗した場合、Slack投稿時に「タイトル」「URL」とともに、本文には要約失敗理由を記載
+本文抽出や要約に失敗した場合は、失敗理由を含むメッセージを Slack に送ります。
 
-## Slack投稿フォーマット
+## Standalone validation script
 
+`@mizchi/readability` の抽出結果を実 URL で確認するための検証スクリプトがあります。
+
+```bash
+node scripts/validate-readability.mjs
 ```
-{title}
-{url}
 
-{model_name}による要約
+URL を指定して実行することもできます。
 
-{本文section1}
-
-{本文section2}
-
-{本文section3}
+```bash
+node scripts/validate-readability.mjs https://example.com/article
 ```
-- 通常は要約結果を3分割してsection1〜3に表示
-- 失敗時はsection1に失敗理由を記載し、section2・3は空欄
+
+このスクリプトは以下を確認します。
+
+- HTML 取得成功/失敗
+- アクセスブロックらしきレスポンス
+- readability の抽出成功/失敗
+- 抽出文字数、タイトル、抜粋
+
+## 開発用コマンド
+
+```bash
+pnpm test
+pnpm type-check
+pnpm build
+```
 
 ## 使用技術
 
-- Chrome拡張（Manifest V3）
-- chrome.readingList API
-- Tavily Extract API / Firecrawl Scrape API（本文抽出）
-- OpenAI SDK（OpenAI互換API対応）
+- Chrome Extension (Manifest V3)
+- `chrome.readingList`
+- `@mizchi/readability`
+- Tavily Extract API（任意フォールバック）
+- OpenAI SDK
+- Preact
 - Slack Webhook
-- chrome.storage.local（設定保存）
-
-## コンテンツ抽出プロバイダー
-
-- デフォルトは Tavily Extract API（Base URL: `https://api.tavily.com`）です。無料枠でも毎月1,000件まで抽出可能です。
-- Firecrawlを利用する場合は、プロバイダーを Firecrawl に切り替え、APIキーと必要に応じて Base URL を設定してください。Base URL を変更すれば、`http://localhost:3002` などセルフホストした Firecrawl サーバーにも接続できます。
-- どちらのプロバイダーでも本文抽出に失敗した場合は自動的にリトライし、最終的に失敗した際はSlackへエラー通知を送信します。
-
-## 今後の拡張予定
-
-- Firecrawlによる本文抽出の自前実装への切り替え
-
-## 注意事項
-
-- Slack連携はWebhook URLのみ対応
-- LLMモデルはユーザー自身がAPI設定画面でモデル名を指定
-- 本拡張はChromeリーディングリストAPI（`chrome.readingList`）が利用可能な環境が必要です

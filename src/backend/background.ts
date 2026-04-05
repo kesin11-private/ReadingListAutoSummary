@@ -4,11 +4,6 @@ import {
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
-import {
-  type ContentExtractorProvider,
-  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-  DEFAULT_FIRECRAWL_BASE_URL,
-} from "../common/constants";
 import type {
   FrontendMessage,
   ManualExecuteResult,
@@ -18,6 +13,7 @@ import {
   type ExtractContentConfig,
   type ExtractContentResult,
   extractContent,
+  summarizeExtractionResult,
 } from "./content_extractor";
 import { postToSlack } from "./post";
 import {
@@ -29,6 +25,14 @@ import {
 } from "./summarizer";
 import "./alarm"; // アラーム処理の初期化
 
+type MessageResponse =
+  | ExtractContentResult
+  | SummarizeResult
+  | SlackTestResult
+  | ManualExecuteResult;
+
+type SendMessageResponse = (response: MessageResponse) => void;
+
 /**
  * メッセージハンドラーの初期化
  */
@@ -39,76 +43,77 @@ function initializeMessageHandlers(): void {
       (
         request: FrontendMessage,
         _sender: chrome.runtime.MessageSender,
-        sendResponse: (
-          response:
-            | ExtractContentResult
-            | SummarizeResult
-            | SlackTestResult
-            | ManualExecuteResult,
-        ) => void,
+        sendResponse: SendMessageResponse,
       ) => {
         if (request.type === "EXTRACT_CONTENT") {
-          handleExtractContentMessage(request.url)
-            .then(sendResponse)
-            .catch((error) => {
-              sendResponse({
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            });
-          return true; // Will respond asynchronously
+          return respondAsync(
+            handleExtractContentMessage(request.url),
+            sendResponse,
+          );
         }
 
         if (request.type === "SUMMARIZE_TEST") {
-          handleSummarizeTestMessage(
-            request.title,
-            request.url,
-            request.content,
-          )
-            .then(sendResponse)
-            .catch((error: unknown) => {
-              sendResponse({
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            });
-          return true; // Will respond asynchronously
+          return respondAsync(
+            handleSummarizeTestMessage(
+              request.title,
+              request.url,
+              request.content,
+            ),
+            sendResponse,
+          );
         }
 
         if (request.type === "SLACK_TEST") {
-          handleSlackTestMessage(
-            request.title,
-            request.url,
-            request.modelName,
-            request.summary,
-          )
-            .then(sendResponse)
-            .catch((error: unknown) => {
-              sendResponse({
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            });
-          return true; // Will respond asynchronously
+          return respondAsync(
+            handleSlackTestMessage(
+              request.title,
+              request.url,
+              request.modelName,
+              request.summary,
+            ),
+            sendResponse,
+          );
         }
 
         if (request.type === "MANUAL_EXECUTE") {
-          handleManualExecuteMessage()
-            .then((res) => sendResponse(res))
-            .catch((error: unknown) => {
-              const result: ManualExecuteResult = {
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-              };
-              sendResponse(result);
-            });
-          return true; // async response
+          return respondAsync(handleManualExecuteMessage(), sendResponse);
         }
 
         return false;
       },
     );
   }
+}
+
+function normalizeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createExtractFailureResult(error: unknown): ExtractContentResult {
+  return {
+    success: false,
+    error: normalizeErrorMessage(error),
+    outcome: "local-failed-no-fallback",
+    attempts: [],
+  };
+}
+
+function createMessageFailureResult(error: unknown): ManualExecuteResult {
+  return {
+    success: false,
+    error: normalizeErrorMessage(error),
+  };
+}
+
+function respondAsync(
+  operation: Promise<MessageResponse>,
+  sendResponse: SendMessageResponse,
+): true {
+  operation.then(sendResponse).catch((error: unknown) => {
+    sendResponse(createMessageFailureResult(error));
+  });
+
+  return true;
 }
 
 /**
@@ -119,26 +124,9 @@ async function handleExtractContentMessage(
 ): Promise<ExtractContentResult> {
   try {
     const settings = await getSettings();
-
-    const provider = resolveContentExtractorProvider(settings);
-    const missingKeyError = validateContentExtractorCredentials(
-      provider,
-      settings,
-    );
-
-    if (missingKeyError) {
-      return {
-        success: false,
-        error: missingKeyError,
-      };
-    }
-
     return await extractContent(url, buildExtractorConfig(settings));
   } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return createExtractFailureResult(error);
   }
 }
 
@@ -181,7 +169,7 @@ async function handleSummarizeTestMessage(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: normalizeErrorMessage(error),
     };
   }
 }
@@ -213,7 +201,7 @@ async function handleSlackTestMessage(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: normalizeErrorMessage(error),
     };
   }
 }
@@ -291,32 +279,25 @@ async function processContentExtraction(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
 ): Promise<void> {
-  const provider = resolveContentExtractorProvider(settings);
-  const missingKeyError = validateContentExtractorCredentials(
-    provider,
-    settings,
-  );
-
-  if (missingKeyError) {
-    console.error(
-      `${provider} API キーが未設定のため本文抽出をスキップ: ${entry.title}`,
-    );
-    await notifyExtractionError(entry, settings, provider, missingKeyError);
-    return;
-  }
-
   const extractResult = await extractContent(
     entry.url,
     buildExtractorConfig(settings),
   );
+  const extractionSummary = summarizeExtractionResult(extractResult);
 
   if (!extractResult.success) {
-    console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
-    await notifyExtractionError(entry, settings, provider, extractResult.error);
+    console.error(
+      `本文抽出失敗: ${entry.title} (${extractionSummary}) - ${extractResult.error}`,
+    );
+    await notifyExtractionError(
+      entry,
+      settings,
+      `${extractResult.error} (${extractionSummary})`,
+    );
     return;
   }
 
-  console.log(`本文抽出成功: ${entry.title}`);
+  console.log(`本文抽出成功: ${entry.title} (${extractionSummary})`);
   await processSummarization(entry, extractResult.content, settings);
 }
 
@@ -357,20 +338,22 @@ async function processSummarization(
     systemPrompt || DEFAULT_SYSTEM_PROMPT,
   );
 
-  const slackMessage =
-    summarizeResult.success && summarizeResult.summary
-      ? formatSlackMessage(
-          entry.title,
-          entry.url,
-          openaiModel,
-          summarizeResult.summary,
-        )
-      : formatSlackErrorMessage(
-          entry.title,
-          entry.url,
-          openaiModel,
-          summarizeResult.error || "不明なエラー",
-        );
+  let slackMessage: string;
+  if (summarizeResult.success && summarizeResult.summary) {
+    slackMessage = formatSlackMessage(
+      entry.title,
+      entry.url,
+      openaiModel,
+      summarizeResult.summary,
+    );
+  } else {
+    slackMessage = formatSlackErrorMessage(
+      entry.title,
+      entry.url,
+      openaiModel,
+      summarizeResult.error || "不明なエラー",
+    );
+  }
 
   await postToSlack(slackWebhookUrl, slackMessage);
 }
@@ -381,7 +364,6 @@ async function processSummarization(
 async function notifyExtractionError(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
-  provider: ContentExtractorProvider,
   error?: string,
 ): Promise<void> {
   if (!settings.slackWebhookUrl || !settings.openaiModel) {
@@ -392,56 +374,22 @@ async function notifyExtractionError(
     entry.title,
     entry.url,
     settings.openaiModel,
-    `本文抽出失敗 (${provider}): ${error}`,
+    `本文抽出失敗: ${error}`,
   );
   await postToSlack(settings.slackWebhookUrl, errorMessage);
 }
 
-function resolveContentExtractorProvider(
-  settings: Settings,
-): ContentExtractorProvider {
-  return (
-    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER
-  );
-}
-
 function buildExtractorConfig(settings: Settings): ExtractContentConfig {
-  const provider = resolveContentExtractorProvider(settings);
-
-  if (provider === "firecrawl") {
-    return {
-      provider: "firecrawl",
-      firecrawl: {
-        apiKey: settings.firecrawlApiKey || "",
-        baseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
-      },
-    };
+  const tavilyApiKey = settings.tavilyApiKey?.trim();
+  if (!tavilyApiKey) {
+    return {};
   }
 
   return {
-    provider: "tavily",
     tavily: {
-      apiKey: settings.tavilyApiKey || "",
+      apiKey: tavilyApiKey,
     },
   };
-}
-
-function validateContentExtractorCredentials(
-  provider: ContentExtractorProvider,
-  settings: Settings,
-): string | null {
-  if (provider === "tavily") {
-    if (!settings.tavilyApiKey?.trim()) {
-      return "Tavily API キーが設定されていません。設定を保存してからお試しください。";
-    }
-    return null;
-  }
-
-  if (!settings.firecrawlApiKey?.trim()) {
-    return "Firecrawl API キーが設定されていません。設定を保存してからお試しください。";
-  }
-
-  return null;
 }
 
 /**

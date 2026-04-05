@@ -32,6 +32,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@mizchi/readability": "^0.7.7",
     "openai": "^5.16.0",
     "preact": "^10.27.3"
   }
