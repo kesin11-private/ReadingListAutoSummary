@@ -10,7 +10,9 @@ import {
   DEFAULT_FIRECRAWL_BASE_URL,
 } from "../common/constants";
 import {
+  getSelectedLlmEndpoint,
   getSelectedLlmModel,
+  type ResolvedLlmConfig,
   resolveSelectedLlmConfig,
 } from "../common/llm_settings";
 import type {
@@ -37,6 +39,73 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type MessageResponse =
+  | ExtractContentResult
+  | SummarizeResult
+  | SlackTestResult
+  | ManualExecuteResult;
+
+function sendAsyncMessageResponse(
+  responsePromise: Promise<MessageResponse>,
+  sendResponse: (response: MessageResponse) => void,
+): true {
+  responsePromise.then(sendResponse).catch((error: unknown) => {
+    sendResponse({
+      success: false,
+      error: getErrorMessage(error),
+    });
+  });
+
+  return true;
+}
+
+function createSummarizerConfig(
+  llmConfig: ResolvedLlmConfig,
+): SummarizerConfig {
+  return {
+    endpoint: llmConfig.endpoint,
+    apiKey: llmConfig.apiKey,
+    model: llmConfig.modelName,
+  };
+}
+
+function getSystemPrompt(settings: Settings): string {
+  return settings.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+}
+
+function getLlmDebugInfo(settings: Settings): Record<string, unknown> {
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  const selectedModel = getSelectedLlmModel(settings);
+
+  return {
+    selectedLlmEndpointId: settings.selectedLlmEndpointId,
+    selectedLlmModelId: settings.selectedLlmModelId,
+    selectedEndpoint: selectedEndpoint
+      ? {
+          id: selectedEndpoint.id,
+          name: selectedEndpoint.name,
+          endpoint: selectedEndpoint.endpoint,
+          apiKeyConfigured: selectedEndpoint.apiKey.trim() !== "",
+        }
+      : null,
+    selectedModel: selectedModel
+      ? {
+          id: selectedModel.id,
+          endpointId: selectedModel.endpointId,
+          modelName: selectedModel.modelName,
+        }
+      : null,
+  };
+}
+
+function logLlmResolutionFailure(
+  context: string,
+  settings: Settings,
+  error: string,
+): void {
+  console.error(`${context}: ${error}`, getLlmDebugInfo(settings));
+}
+
 /**
  * メッセージハンドラーの初期化
  */
@@ -47,70 +116,43 @@ function initializeMessageHandlers(): void {
       (
         request: FrontendMessage,
         _sender: chrome.runtime.MessageSender,
-        sendResponse: (
-          response:
-            | ExtractContentResult
-            | SummarizeResult
-            | SlackTestResult
-            | ManualExecuteResult,
-        ) => void,
+        sendResponse: (response: MessageResponse) => void,
       ) => {
         if (request.type === "EXTRACT_CONTENT") {
-          handleExtractContentMessage(request.url)
-            .then(sendResponse)
-            .catch((error) => {
-              sendResponse({
-                success: false,
-                error: getErrorMessage(error),
-              });
-            });
-          return true; // Will respond asynchronously
+          return sendAsyncMessageResponse(
+            handleExtractContentMessage(request.url),
+            sendResponse,
+          );
         }
 
         if (request.type === "SUMMARIZE_TEST") {
-          handleSummarizeTestMessage(
-            request.title,
-            request.url,
-            request.content,
-          )
-            .then(sendResponse)
-            .catch((error: unknown) => {
-              sendResponse({
-                success: false,
-                error: getErrorMessage(error),
-              });
-            });
-          return true; // Will respond asynchronously
+          return sendAsyncMessageResponse(
+            handleSummarizeTestMessage(
+              request.title,
+              request.url,
+              request.content,
+            ),
+            sendResponse,
+          );
         }
 
         if (request.type === "SLACK_TEST") {
-          handleSlackTestMessage(
-            request.title,
-            request.url,
-            request.modelName,
-            request.summary,
-          )
-            .then(sendResponse)
-            .catch((error: unknown) => {
-              sendResponse({
-                success: false,
-                error: getErrorMessage(error),
-              });
-            });
-          return true; // Will respond asynchronously
+          return sendAsyncMessageResponse(
+            handleSlackTestMessage(
+              request.title,
+              request.url,
+              request.modelName,
+              request.summary,
+            ),
+            sendResponse,
+          );
         }
 
         if (request.type === "MANUAL_EXECUTE") {
-          handleManualExecuteMessage()
-            .then((res) => sendResponse(res))
-            .catch((error: unknown) => {
-              const result: ManualExecuteResult = {
-                success: false,
-                error: getErrorMessage(error),
-              };
-              sendResponse(result);
-            });
-          return true; // async response
+          return sendAsyncMessageResponse(
+            handleManualExecuteMessage(),
+            sendResponse,
+          );
         }
 
         return false;
@@ -163,24 +205,23 @@ async function handleSummarizeTestMessage(
     const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
     if (!llmConfig) {
+      logLlmResolutionFailure(
+        "要約テスト用LLM設定の解決に失敗",
+        settings,
+        error || "LLM設定の解決に失敗しました。",
+      );
       return {
         success: false,
         error: error || "LLM設定の解決に失敗しました。",
       };
     }
 
-    const summarizerConfig: SummarizerConfig = {
-      endpoint: llmConfig.endpoint,
-      apiKey: llmConfig.apiKey,
-      model: llmConfig.modelName,
-    };
-
     return await summarizeContent(
       title,
       url,
       content,
-      summarizerConfig,
-      settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+      createSummarizerConfig(llmConfig),
+      getSystemPrompt(settings),
     );
   } catch (error) {
     return {
@@ -198,7 +239,7 @@ async function handleSlackTestMessage(
   url: string,
   modelName: string,
   summary: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<SlackTestResult> {
   try {
     const settings = await getSettings();
 
@@ -332,28 +373,29 @@ async function processSummarization(
   content: string,
   settings: Settings,
 ): Promise<void> {
-  const { slackWebhookUrl, systemPrompt } = settings;
-  const { config: llmConfig } = resolveSelectedLlmConfig(settings);
+  const { slackWebhookUrl } = settings;
+  const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
   if (!llmConfig || !slackWebhookUrl) {
+    if (!llmConfig) {
+      logLlmResolutionFailure(
+        `既読化エントリの要約をスキップ: ${entry.title}`,
+        settings,
+        error || "LLM設定の解決に失敗しました。",
+      );
+    }
     console.warn(
       "LLM設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
     );
     return;
   }
 
-  const summarizerConfig: SummarizerConfig = {
-    endpoint: llmConfig.endpoint,
-    apiKey: llmConfig.apiKey,
-    model: llmConfig.modelName,
-  };
-
   const summarizeResult = await summarizeContent(
     entry.title,
     entry.url,
     content,
-    summarizerConfig,
-    systemPrompt || DEFAULT_SYSTEM_PROMPT,
+    createSummarizerConfig(llmConfig),
+    getSystemPrompt(settings),
   );
 
   let slackMessage: string;
@@ -433,18 +475,18 @@ function validateContentExtractorCredentials(
   provider: ContentExtractorProvider,
   settings: Settings,
 ): string | null {
-  if (provider === "tavily") {
-    if (!settings.tavilyApiKey?.trim()) {
-      return "Tavily API キーが設定されていません。設定を保存してからお試しください。";
-    }
-    return null;
+  switch (provider) {
+    case "tavily":
+      if (!settings.tavilyApiKey?.trim()) {
+        return "Tavily API キーが設定されていません。設定を保存してからお試しください。";
+      }
+      return null;
+    case "firecrawl":
+      if (!settings.firecrawlApiKey?.trim()) {
+        return "Firecrawl API キーが設定されていません。設定を保存してからお試しください。";
+      }
+      return null;
   }
-
-  if (!settings.firecrawlApiKey?.trim()) {
-    return "Firecrawl API キーが設定されていません。設定を保存してからお試しください。";
-  }
-
-  return null;
 }
 
 /**

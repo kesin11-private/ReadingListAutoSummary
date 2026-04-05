@@ -25,6 +25,7 @@ import {
   type LlmModelConfig,
   normalizeLlmSettings,
 } from "../../common/llm_settings";
+import type { ManualExecuteResult } from "../../types/messages";
 import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
@@ -41,13 +42,101 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isManualExecuteResponse(
+  response: unknown,
+): response is ManualExecuteResult {
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    "success" in response &&
+    typeof response.success === "boolean"
+  );
+}
+
+function updateItemById<T extends { id: string }>(
+  items: T[],
+  id: string,
+  updater: (item: T) => T,
+): T[] {
+  return items.map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+
+    return updater(item);
+  });
+}
+
 function formatEndpointLabel(
   endpoint: LlmEndpointConfig,
   index: number,
 ): string {
-  return endpoint.name.trim()
-    ? endpoint.name
-    : deriveLlmEndpointName(endpoint.endpoint, `Endpoint ${index + 1}`);
+  if (endpoint.name.trim()) {
+    return endpoint.name;
+  }
+
+  return deriveLlmEndpointName(endpoint.endpoint, `Endpoint ${index + 1}`);
+}
+
+function getModelOptionLabel(model: LlmModelConfig, index: number): string {
+  if (model.modelName) {
+    return model.modelName;
+  }
+
+  return `Model ${index + 1}`;
+}
+
+function getProviderLabel(provider: ContentExtractorProvider): string {
+  if (provider === "tavily") {
+    return "Tavily";
+  }
+
+  return "Firecrawl";
+}
+
+function getSelectedProvider(settings: Settings): ContentExtractorProvider {
+  return (
+    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER
+  );
+}
+
+function sanitizeEditableSettings(settings: Settings): Settings {
+  return {
+    ...settings,
+    slackWebhookUrl: settings.slackWebhookUrl?.trim() || "",
+    tavilyApiKey: settings.tavilyApiKey?.trim() || "",
+    firecrawlApiKey: settings.firecrawlApiKey?.trim() || "",
+    firecrawlBaseUrl:
+      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL,
+  };
+}
+
+function getValidationErrorMessage(errors: string[]): string {
+  return errors[0] || "バリデーションエラーが発生しました";
+}
+
+function clearSaveMessageAfterDelay(
+  setSaveStatus: (value: SaveStatus) => void,
+  setSaveMessage: (value: string) => void,
+): void {
+  setTimeout(() => {
+    setSaveStatus("idle");
+    setSaveMessage("");
+  }, 3000);
+}
+
+function clearManualMessageAfterDelay(
+  setManualMessage: (value: string | null) => void,
+): void {
+  setTimeout(() => setManualMessage(null), 3000);
+}
+
+function getSaveStatusClassName(saveStatus: SaveStatus): string {
+  return saveStatus === "success" ? "text-green-600" : "text-red-600";
+}
+
+function toNumber(value: string): number {
+  return Number(value);
 }
 
 export function formatSettingsForUi(settings: Settings): Settings {
@@ -112,13 +201,13 @@ export function updateSelectedLlmEndpoint(
 
   return {
     ...settings,
-    llmEndpoints: settings.llmEndpoints.map((endpoint) =>
-      endpoint.id === selectedEndpoint.id
-        ? {
-            ...endpoint,
-            [field]: value,
-          }
-        : endpoint,
+    llmEndpoints: updateItemById(
+      settings.llmEndpoints,
+      selectedEndpoint.id,
+      (endpoint) => ({
+        ...endpoint,
+        [field]: value,
+      }),
     ),
   };
 }
@@ -185,13 +274,13 @@ export function updateSelectedLlmModel(
 
   return {
     ...settings,
-    llmModels: settings.llmModels.map((model) =>
-      model.id === selectedModel.id
-        ? {
-            ...model,
-            modelName: value,
-          }
-        : model,
+    llmModels: updateItemById(
+      settings.llmModels,
+      selectedModel.id,
+      (model) => ({
+        ...model,
+        modelName: value,
+      }),
     ),
   };
 }
@@ -246,22 +335,12 @@ export function App(): JSX.Element {
     setSaveStatus("idle");
     setSaveMessage("");
 
-    const sanitizedSettings: Settings = {
-      ...settings,
-      slackWebhookUrl: settings.slackWebhookUrl?.trim() || "",
-      tavilyApiKey: settings.tavilyApiKey?.trim() || "",
-      firecrawlApiKey: settings.firecrawlApiKey?.trim() || "",
-      firecrawlBaseUrl:
-        settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL,
-    };
-
-    const { errors: validationErrors, validatedSettings } =
-      validateSettings(sanitizedSettings);
+    const { errors: validationErrors, validatedSettings } = validateSettings(
+      sanitizeEditableSettings(settings),
+    );
     if (validationErrors.length > 0) {
       setSaveStatus("error");
-      setSaveMessage(
-        validationErrors[0] || "バリデーションエラーが発生しました",
-      );
+      setSaveMessage(getValidationErrorMessage(validationErrors));
       setIsSaving(false);
       return;
     }
@@ -278,10 +357,7 @@ export function App(): JSX.Element {
       setSettings(formatSettingsForUi(validatedSettings));
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
-      setTimeout(() => {
-        setSaveStatus("idle");
-        setSaveMessage("");
-      }, 3000);
+      clearSaveMessageAfterDelay(setSaveStatus, setSaveMessage);
     } catch (error) {
       console.error("設定保存エラー:", error);
       setSaveStatus("error");
@@ -315,28 +391,29 @@ export function App(): JSX.Element {
   async function handleManualExecute(): Promise<void> {
     setIsManualRunning(true);
     setManualMessage(null);
+
     try {
       const response = await chrome.runtime.sendMessage({
         type: "MANUAL_EXECUTE",
       });
 
-      if (response && typeof response === "object" && "success" in response) {
-        if (response.success) {
-          setManualMessage("実行が完了しました");
-        } else {
-          setManualMessage(
-            `実行に失敗しました: ${response.error || "不明なエラー"}`,
-          );
-        }
+      if (!isManualExecuteResponse(response)) {
+        setManualMessage("不正なレスポンス形式です");
         return;
       }
 
-      setManualMessage("不正なレスポンス形式です");
+      if (response.success) {
+        setManualMessage("実行が完了しました");
+      } else {
+        setManualMessage(
+          `実行に失敗しました: ${response.error || "不明なエラー"}`,
+        );
+      }
     } catch (error) {
       setManualMessage(`実行エラー: ${getErrorMessage(error)}`);
     } finally {
       setIsManualRunning(false);
-      setTimeout(() => setManualMessage(null), 3000);
+      clearManualMessageAfterDelay(setManualMessage);
     }
   }
 
@@ -348,8 +425,7 @@ export function App(): JSX.Element {
     );
   }
 
-  const selectedProvider: ContentExtractorProvider =
-    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
+  const selectedProvider = getSelectedProvider(settings);
   const selectedEndpoint = getSelectedLlmEndpoint(settings);
   const modelsForSelectedEndpoint = getLlmModelsForEndpoint(
     settings,
@@ -390,7 +466,7 @@ export function App(): JSX.Element {
                 onInput={(e) =>
                   handleInputChange(
                     "alarmIntervalMinutes",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -416,7 +492,7 @@ export function App(): JSX.Element {
                 onInput={(e) =>
                   handleInputChange(
                     "daysUntilRead",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -442,7 +518,7 @@ export function App(): JSX.Element {
                 onInput={(e) =>
                   handleInputChange(
                     "daysUntilDelete",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -469,7 +545,7 @@ export function App(): JSX.Element {
                 onInput={(e) =>
                   handleInputChange(
                     "maxEntriesPerRun",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -631,6 +707,9 @@ export function App(): JSX.Element {
                     }
                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                  <p class="mt-1 text-xs text-gray-500">
+                    ローカルLLMなどAPIキー不要のエンドポイントでは空欄でも利用できます
+                  </p>
                 </div>
               </div>
             ) : (
@@ -697,7 +776,7 @@ export function App(): JSX.Element {
                     ) : (
                       modelsForSelectedEndpoint.map((model, index) => (
                         <option key={model.id} value={model.id}>
-                          {model.modelName || `Model ${index + 1}`}
+                          {getModelOptionLabel(model, index)}
                         </option>
                       ))
                     )}
@@ -803,7 +882,7 @@ export function App(): JSX.Element {
               >
                 {CONTENT_EXTRACTOR_PROVIDERS.map((provider) => (
                   <option key={provider} value={provider}>
-                    {provider === "tavily" ? "Tavily" : "Firecrawl"}
+                    {getProviderLabel(provider)}
                   </option>
                 ))}
               </select>
@@ -891,8 +970,6 @@ export function App(): JSX.Element {
           </div>
         </section>
 
-        <ContentExtractorTest provider={selectedProvider} />
-
         <section class="bg-gray-50 p-4 rounded-lg">
           <h2 class="text-lg font-semibold mb-4">Slack通知設定</h2>
 
@@ -929,15 +1006,13 @@ export function App(): JSX.Element {
           </button>
 
           {saveStatus !== "idle" && (
-            <span
-              class={`text-sm ${
-                saveStatus === "success" ? "text-green-600" : "text-red-600"
-              }`}
-            >
+            <span class={`text-sm ${getSaveStatusClassName(saveStatus)}`}>
               {saveMessage}
             </span>
           )}
         </div>
+
+        <ContentExtractorTest provider={selectedProvider} />
       </form>
     </main>
   );

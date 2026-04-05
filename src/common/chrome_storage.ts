@@ -30,6 +30,11 @@ export interface Settings {
 
 export type ValidatedSettings = Settings & { readonly validated: true };
 
+type StoredLlmSettings = Pick<
+  Settings,
+  "llmEndpoints" | "llmModels" | "selectedLlmEndpointId" | "selectedLlmModelId"
+>;
+
 interface StoredSettings extends Record<string, unknown> {
   daysUntilRead?: unknown;
   daysUntilDelete?: unknown;
@@ -78,6 +83,12 @@ const LEGACY_LLM_STORAGE_KEYS = [
 
 const LEGACY_ENDPOINT_ID = "legacy-endpoint";
 const LEGACY_MODEL_ID = "legacy-model";
+const EMPTY_LLM_SETTINGS: StoredLlmSettings = {
+  llmEndpoints: [],
+  llmModels: [],
+  selectedLlmEndpointId: null,
+  selectedLlmModelId: null,
+};
 
 // 実行間隔（分）のデフォルト値
 export const DEFAULT_INTERVAL_MINUTES = 720;
@@ -129,86 +140,86 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseLlmEndpoints(value: unknown): LlmEndpointConfig[] {
+function parseStoredArray<T>(
+  value: unknown,
+  parseEntry: (entry: unknown) => T | null,
+): T[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   return value.flatMap((entry) => {
-    if (!isRecord(entry)) {
-      return [];
-    }
-
-    const id = getStringValue(entry.id);
-    const name = getStringValue(entry.name);
-    const endpoint = getStringValue(entry.endpoint);
-    const apiKey = getStringValue(entry.apiKey);
-
-    if (
-      !id ||
-      name === undefined ||
-      endpoint === undefined ||
-      apiKey === undefined
-    ) {
-      return [];
-    }
-
-    return [
-      {
-        id,
-        name,
-        endpoint,
-        apiKey,
-      },
-    ];
+    const parsedEntry = parseEntry(entry);
+    return parsedEntry ? [parsedEntry] : [];
   });
+}
+
+function parseLlmEndpoint(entry: unknown): LlmEndpointConfig | null {
+  if (!isRecord(entry)) {
+    return null;
+  }
+
+  const id = getStringValue(entry.id);
+  const name = getStringValue(entry.name);
+  const endpoint = getStringValue(entry.endpoint);
+  const apiKey = getStringValue(entry.apiKey);
+
+  if (
+    !id ||
+    name === undefined ||
+    endpoint === undefined ||
+    apiKey === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    endpoint,
+    apiKey,
+  };
+}
+
+function parseLlmEndpoints(value: unknown): LlmEndpointConfig[] {
+  return parseStoredArray(value, parseLlmEndpoint);
+}
+
+function parseLlmModel(entry: unknown): LlmModelConfig | null {
+  if (!isRecord(entry)) {
+    return null;
+  }
+
+  const id = getStringValue(entry.id);
+  const endpointId = getStringValue(entry.endpointId);
+  const modelName = getStringValue(entry.modelName);
+
+  if (!id || !endpointId || modelName === undefined) {
+    return null;
+  }
+
+  return {
+    id,
+    endpointId,
+    modelName,
+  };
 }
 
 function parseLlmModels(value: unknown): LlmModelConfig[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((entry) => {
-    if (!isRecord(entry)) {
-      return [];
-    }
-
-    const id = getStringValue(entry.id);
-    const endpointId = getStringValue(entry.endpointId);
-    const modelName = getStringValue(entry.modelName);
-
-    if (!id || !endpointId || modelName === undefined) {
-      return [];
-    }
-
-    return [
-      {
-        id,
-        endpointId,
-        modelName,
-      },
-    ];
-  });
+  return parseStoredArray(value, parseLlmModel);
 }
 
-function migrateLegacyLlmSettings(result: StoredSettings): {
-  llmEndpoints: LlmEndpointConfig[];
-  llmModels: LlmModelConfig[];
-  selectedLlmEndpointId: string | null;
-  selectedLlmModelId: string | null;
-} {
-  const legacyEndpoint = getStringValue(result.openaiEndpoint)?.trim() || "";
-  const legacyApiKey = getStringValue(result.openaiApiKey)?.trim() || "";
-  const legacyModel = getStringValue(result.openaiModel)?.trim() || "";
+function getTrimmedStringValue(value: unknown): string {
+  return getStringValue(value)?.trim() || "";
+}
+
+function migrateLegacyLlmSettings(result: StoredSettings): StoredLlmSettings {
+  const legacyEndpoint = getTrimmedStringValue(result.openaiEndpoint);
+  const legacyApiKey = getTrimmedStringValue(result.openaiApiKey);
+  const legacyModel = getTrimmedStringValue(result.openaiModel);
 
   if (!legacyEndpoint && !legacyApiKey && !legacyModel) {
-    return {
-      llmEndpoints: [],
-      llmModels: [],
-      selectedLlmEndpointId: null,
-      selectedLlmModelId: null,
-    };
+    return EMPTY_LLM_SETTINGS;
   }
 
   const llmEndpoints: LlmEndpointConfig[] = [
@@ -238,12 +249,7 @@ function migrateLegacyLlmSettings(result: StoredSettings): {
   };
 }
 
-function resolveStoredLlmSettings(
-  result: StoredSettings,
-): Pick<
-  Settings,
-  "llmEndpoints" | "llmModels" | "selectedLlmEndpointId" | "selectedLlmModelId"
-> {
+function resolveStoredLlmSettings(result: StoredSettings): StoredLlmSettings {
   const llmEndpoints = parseLlmEndpoints(result.llmEndpoints);
   const llmModels = parseLlmModels(result.llmModels);
 
@@ -257,6 +263,62 @@ function resolveStoredLlmSettings(
     selectedLlmEndpointId: getStringValue(result.selectedLlmEndpointId) ?? null,
     selectedLlmModelId: getStringValue(result.selectedLlmModelId) ?? null,
   };
+}
+
+type SettingsToSave = Record<
+  string,
+  string | number | LlmEndpointConfig[] | LlmModelConfig[] | null
+>;
+
+function addOptionalSetting(
+  settingsToSave: SettingsToSave,
+  key: keyof Settings,
+  value: string | ContentExtractorProvider | undefined,
+): void {
+  if (value) {
+    settingsToSave[key] = value;
+  }
+}
+
+function createSettingsToSave(settings: Settings): SettingsToSave {
+  const settingsToSave: SettingsToSave = {
+    daysUntilRead: settings.daysUntilRead,
+    daysUntilDelete: settings.daysUntilDelete,
+    maxEntriesPerRun: settings.maxEntriesPerRun ?? DEFAULT_MAX_ENTRIES_PER_RUN,
+    alarmIntervalMinutes:
+      settings.alarmIntervalMinutes ?? DEFAULT_ALARM_INTERVAL_MINUTES,
+    llmEndpoints: settings.llmEndpoints,
+    llmModels: settings.llmModels,
+    selectedLlmEndpointId: settings.selectedLlmEndpointId,
+    selectedLlmModelId: settings.selectedLlmModelId,
+  };
+
+  addOptionalSetting(
+    settingsToSave,
+    "slackWebhookUrl",
+    settings.slackWebhookUrl,
+  );
+  addOptionalSetting(
+    settingsToSave,
+    "contentExtractorProvider",
+    settings.contentExtractorProvider,
+  );
+  addOptionalSetting(settingsToSave, "tavilyApiKey", settings.tavilyApiKey);
+  addOptionalSetting(
+    settingsToSave,
+    "firecrawlApiKey",
+    settings.firecrawlApiKey,
+  );
+  addOptionalSetting(
+    settingsToSave,
+    "firecrawlBaseUrl",
+    settings.firecrawlBaseUrl,
+  );
+  if (settings.systemPrompt !== undefined) {
+    settingsToSave.systemPrompt = settings.systemPrompt;
+  }
+
+  return settingsToSave;
 }
 
 function parseContentExtractorProvider(
@@ -329,43 +391,7 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(settings: ValidatedSettings): Promise<void> {
   try {
     const sanitizedSettings = sanitizeLlmSettings(settings);
-    const settingsToSave: Record<
-      string,
-      string | number | string[] | object[] | null
-    > = {
-      daysUntilRead: sanitizedSettings.daysUntilRead,
-      daysUntilDelete: sanitizedSettings.daysUntilDelete,
-      maxEntriesPerRun:
-        sanitizedSettings.maxEntriesPerRun ?? DEFAULT_MAX_ENTRIES_PER_RUN,
-      alarmIntervalMinutes:
-        sanitizedSettings.alarmIntervalMinutes ??
-        DEFAULT_ALARM_INTERVAL_MINUTES,
-      llmEndpoints: sanitizedSettings.llmEndpoints,
-      llmModels: sanitizedSettings.llmModels,
-      selectedLlmEndpointId: sanitizedSettings.selectedLlmEndpointId,
-      selectedLlmModelId: sanitizedSettings.selectedLlmModelId,
-    };
-
-    if (sanitizedSettings.slackWebhookUrl) {
-      settingsToSave.slackWebhookUrl = sanitizedSettings.slackWebhookUrl;
-    }
-    if (sanitizedSettings.contentExtractorProvider) {
-      settingsToSave.contentExtractorProvider =
-        sanitizedSettings.contentExtractorProvider;
-    }
-    if (sanitizedSettings.tavilyApiKey) {
-      settingsToSave.tavilyApiKey = sanitizedSettings.tavilyApiKey;
-    }
-    if (sanitizedSettings.firecrawlApiKey) {
-      settingsToSave.firecrawlApiKey = sanitizedSettings.firecrawlApiKey;
-    }
-    if (sanitizedSettings.firecrawlBaseUrl) {
-      settingsToSave.firecrawlBaseUrl = sanitizedSettings.firecrawlBaseUrl;
-    }
-    if (sanitizedSettings.systemPrompt !== undefined) {
-      settingsToSave.systemPrompt = sanitizedSettings.systemPrompt;
-    }
-
+    const settingsToSave = createSettingsToSave(sanitizedSettings);
     await chrome.storage.local.remove([...LEGACY_LLM_STORAGE_KEYS]);
     await chrome.storage.local.set(settingsToSave);
   } catch (error) {

@@ -28,7 +28,44 @@ export interface ResolvedLlmConfig {
 }
 
 const INCOMPLETE_LLM_CONFIG_ERROR =
-  "LLM設定（選択中のエンドポイント、APIキー、モデル名）が不完全です。設定を保存してからお試しください。";
+  "LLM設定（選択中のエンドポイント、モデル名）が不完全です。設定を保存してからお試しください。";
+const OPTIONAL_API_KEY_PLACEHOLDER = "not-required";
+
+function findByIdOrFirst<T extends { id: string }>(
+  items: T[],
+  selectedId: string | null,
+): T | null {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return items.find((item) => item.id === selectedId) ?? items[0] ?? null;
+}
+
+function sanitizeLlmEndpoint(
+  endpoint: LlmEndpointConfig,
+  index: number,
+): LlmEndpointConfig {
+  return {
+    id: endpoint.id.trim() || `endpoint-${index + 1}`,
+    name:
+      endpoint.name.trim() ||
+      deriveLlmEndpointName(endpoint.endpoint, `Endpoint ${index + 1}`),
+    endpoint: endpoint.endpoint.trim(),
+    apiKey: endpoint.apiKey.trim(),
+  };
+}
+
+function sanitizeLlmModel(
+  model: LlmModelConfig,
+  index: number,
+): LlmModelConfig {
+  return {
+    id: model.id.trim() || `model-${index + 1}`,
+    endpointId: model.endpointId,
+    modelName: model.modelName.trim(),
+  };
+}
 
 export function deriveLlmEndpointName(
   endpoint: string,
@@ -62,17 +99,7 @@ export function getLlmModelsForEndpoint(
 export function getSelectedLlmEndpoint(
   state: LlmSettingsState,
 ): LlmEndpointConfig | null {
-  if (state.llmEndpoints.length === 0) {
-    return null;
-  }
-
-  return (
-    state.llmEndpoints.find(
-      (endpoint) => endpoint.id === state.selectedLlmEndpointId,
-    ) ||
-    state.llmEndpoints[0] ||
-    null
-  );
+  return findByIdOrFirst(state.llmEndpoints, state.selectedLlmEndpointId);
 }
 
 export function getSelectedLlmModel(
@@ -89,11 +116,7 @@ export function getSelectedLlmModel(
     return null;
   }
 
-  return (
-    models.find((model) => model.id === state.selectedLlmModelId) ||
-    models[0] ||
-    null
-  );
+  return findByIdOrFirst(models, state.selectedLlmModelId);
 }
 
 export function normalizeLlmSettings<T extends LlmSettingsState>(
@@ -112,23 +135,12 @@ export function normalizeLlmSettings<T extends LlmSettingsState>(
 export function sanitizeLlmSettings<T extends LlmSettingsState>(
   settings: T,
 ): T {
-  const llmEndpoints = settings.llmEndpoints.map((endpoint, index) => ({
-    id: endpoint.id.trim() || `endpoint-${index + 1}`,
-    name:
-      endpoint.name.trim() ||
-      deriveLlmEndpointName(endpoint.endpoint, `Endpoint ${index + 1}`),
-    endpoint: endpoint.endpoint.trim(),
-    apiKey: endpoint.apiKey.trim(),
-  }));
+  const llmEndpoints = settings.llmEndpoints.map(sanitizeLlmEndpoint);
 
   const llmEndpointIds = new Set(llmEndpoints.map((endpoint) => endpoint.id));
   const llmModels = settings.llmModels
     .filter((model) => llmEndpointIds.has(model.endpointId))
-    .map((model, index) => ({
-      id: model.id.trim() || `model-${index + 1}`,
-      endpointId: model.endpointId,
-      modelName: model.modelName.trim(),
-    }));
+    .map(sanitizeLlmModel);
 
   return normalizeLlmSettings({
     ...settings,
@@ -154,7 +166,7 @@ export function resolveSelectedLlmConfig(settings: LlmSettingsState): {
   const apiKey = selectedEndpoint.apiKey.trim();
   const modelName = selectedModel.modelName.trim();
 
-  if (!endpoint || !apiKey || !modelName) {
+  if (!endpoint || !modelName) {
     return {
       error: INCOMPLETE_LLM_CONFIG_ERROR,
     };
@@ -165,7 +177,7 @@ export function resolveSelectedLlmConfig(settings: LlmSettingsState): {
       endpointId: selectedEndpoint.id,
       endpointName: selectedEndpoint.name,
       endpoint,
-      apiKey,
+      apiKey: apiKey || OPTIONAL_API_KEY_PLACEHOLDER,
       modelId: selectedModel.id,
       modelName,
     },

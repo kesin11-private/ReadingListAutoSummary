@@ -244,7 +244,7 @@ describe("markAsReadAndNotify", () => {
     );
   });
 
-  it("LLM設定が不完全な場合は要約とSlack投稿をスキップ", async () => {
+  it("APIキーが空欄でも選択中モデルで要約できる", async () => {
     const selectedEndpoint = completeSettings.llmEndpoints[0];
     if (!selectedEndpoint) {
       throw new Error("テスト用エンドポイントがありません");
@@ -255,6 +255,16 @@ describe("markAsReadAndNotify", () => {
       success: true,
       content: "# テスト記事\n\nテスト本文",
     });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約文",
+      retryCount: 1,
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
 
     await markAsReadAndNotify(entry, {
       ...completeSettings,
@@ -266,8 +276,21 @@ describe("markAsReadAndNotify", () => {
       ],
     });
 
-    expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockPostToSlack).not.toHaveBeenCalled();
+    expect(mockSummarizeContent).toHaveBeenCalledWith(
+      entry.title,
+      entry.url,
+      "# テスト記事\n\nテスト本文",
+      {
+        endpoint: "https://api.openai.com/v1",
+        apiKey: expect.any(String),
+        model: "gpt-4o-mini",
+      },
+      expect.any(String),
+    );
+    expect(mockPostToSlack).toHaveBeenCalledWith(
+      completeSettings.slackWebhookUrl,
+      "formatted slack message",
+    );
   });
 
   it("本文抽出失敗時に選択中モデル名でエラーメッセージをSlackに投稿", async () => {
