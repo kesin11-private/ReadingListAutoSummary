@@ -20,6 +20,14 @@ export interface SummarizerConfig {
   model: string;
 }
 
+interface ChatCompletionResponseLike {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }>;
+}
+
 /**
  * 指数バックオフでのリトライ用の遅延時間を計算
  */
@@ -33,6 +41,45 @@ function calculateBackoffDelay(attempt: number): number {
  */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isChatCompletionResponseLike(
+  response: unknown,
+): response is ChatCompletionResponseLike {
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    "choices" in response &&
+    Array.isArray(response.choices)
+  );
+}
+
+function createInvalidResponseErrorMessage(config: SummarizerConfig): string {
+  return [
+    "要約APIから期待した形式のレスポンスを受け取れませんでした。",
+    `確認候補: エンドポイントURL (${config.endpoint}) が正しいか、モデル名 (${config.model}) が存在するか、接続先が OpenAI 互換の chat completions API を提供しているか、認証設定が接続先の仕様と一致しているか。`,
+  ].join(" ");
+}
+
+function extractSummaryFromResponse(
+  response: unknown,
+  config: SummarizerConfig,
+): string {
+  if (!isChatCompletionResponseLike(response)) {
+    console.error("要約APIレスポンス形式エラー:", {
+      endpoint: config.endpoint,
+      model: config.model,
+      response,
+    });
+    throw new Error(createInvalidResponseErrorMessage(config));
+  }
+
+  const summary = response.choices[0]?.message?.content?.trim();
+  if (!summary) {
+    throw new Error("要約結果が空です");
+  }
+
+  return summary;
 }
 
 /**
@@ -72,11 +119,7 @@ export async function summarizeContent(
         stream: false,
       });
 
-      const summary = response.choices[0]?.message?.content?.trim();
-
-      if (!summary) {
-        throw new Error("要約結果が空です");
-      }
+      const summary = extractSummaryFromResponse(response, config);
 
       console.log(`要約生成成功 (試行 ${attempt}): ${title}`);
       console.log(`生成された要約 (${summary.length}文字): ${summary}`);

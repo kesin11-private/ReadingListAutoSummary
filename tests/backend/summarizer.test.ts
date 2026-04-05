@@ -19,6 +19,13 @@ vi.mock("openai", () => ({
   })),
 }));
 
+async function advanceRetryDelays(): Promise<void> {
+  vi.advanceTimersByTime(1000);
+  await vi.runOnlyPendingTimersAsync();
+  vi.advanceTimersByTime(2000);
+  await vi.runOnlyPendingTimersAsync();
+}
+
 describe("summarizer", () => {
   const config: SummarizerConfig = {
     endpoint: "https://api.openai.com/v1",
@@ -85,11 +92,7 @@ describe("summarizer", () => {
         DEFAULT_SYSTEM_PROMPT,
       );
 
-      // タイマーを進めてリトライを実行
-      vi.advanceTimersByTime(1000); // 1回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
-      vi.advanceTimersByTime(2000); // 2回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
+      await advanceRetryDelays();
 
       const result = await resultPromise;
 
@@ -113,11 +116,7 @@ describe("summarizer", () => {
         DEFAULT_SYSTEM_PROMPT,
       );
 
-      // タイマーを進めてリトライを実行
-      vi.advanceTimersByTime(1000); // 1回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
-      vi.advanceTimersByTime(2000); // 2回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
+      await advanceRetryDelays();
 
       const result = await resultPromise;
 
@@ -128,6 +127,34 @@ describe("summarizer", () => {
         modelName: "gpt-4",
       });
       expect(mockCreate).toHaveBeenCalledTimes(3);
+    });
+
+    it("OpenAI互換ではないレスポンスの場合は確認ポイント付きで失敗する", async () => {
+      mockCreate.mockResolvedValue({
+        unexpected: true,
+      });
+
+      const resultPromise = summarizeContent(
+        "テストタイトル",
+        "https://example.com",
+        "テストコンテンツ",
+        config,
+        DEFAULT_SYSTEM_PROMPT,
+      );
+
+      await advanceRetryDelays();
+
+      const result = await resultPromise;
+
+      expect(result.success).toBe(false);
+      expect(result.retryCount).toBe(3);
+      expect(result.modelName).toBe("gpt-4");
+      expect(result.error).toContain(
+        "要約APIから期待した形式のレスポンスを受け取れませんでした。",
+      );
+      expect(result.error).toContain("エンドポイントURL");
+      expect(result.error).toContain("モデル名");
+      expect(result.error).toContain("OpenAI 互換");
     });
 
     it("2回目のリトライで成功", async () => {
