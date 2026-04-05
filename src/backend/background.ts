@@ -4,6 +4,12 @@ import {
   getSettings,
   type Settings,
 } from "../common/chrome_storage";
+import {
+  getSelectedLlmEndpoint,
+  getSelectedLlmModel,
+  type ResolvedLlmConfig,
+  resolveSelectedLlmConfig,
+} from "../common/llm_settings";
 import type {
   FrontendMessage,
   ManualExecuteResult,
@@ -25,13 +31,89 @@ import {
 } from "./summarizer";
 import "./alarm"; // アラーム処理の初期化
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createExtractFailureResult(error: unknown): ExtractContentResult {
+  return {
+    success: false,
+    error: getErrorMessage(error),
+    outcome: "local-failed-no-fallback",
+    attempts: [],
+  };
+}
+
+function createMessageFailureResult(error: unknown): ManualExecuteResult {
+  return {
+    success: false,
+    error: getErrorMessage(error),
+  };
+}
+
 type MessageResponse =
   | ExtractContentResult
   | SummarizeResult
   | SlackTestResult
   | ManualExecuteResult;
 
-type SendMessageResponse = (response: MessageResponse) => void;
+function sendAsyncMessageResponse(
+  responsePromise: Promise<MessageResponse>,
+  sendResponse: (response: MessageResponse) => void,
+): true {
+  responsePromise.then(sendResponse).catch((error: unknown) => {
+    sendResponse(createMessageFailureResult(error));
+  });
+
+  return true;
+}
+
+function createSummarizerConfig(
+  llmConfig: ResolvedLlmConfig,
+): SummarizerConfig {
+  return {
+    endpoint: llmConfig.endpoint,
+    apiKey: llmConfig.apiKey,
+    model: llmConfig.modelName,
+  };
+}
+
+function getSystemPrompt(settings: Settings): string {
+  return settings.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+}
+
+function getLlmDebugInfo(settings: Settings): Record<string, unknown> {
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  const selectedModel = getSelectedLlmModel(settings);
+
+  return {
+    selectedLlmEndpointId: settings.selectedLlmEndpointId,
+    selectedLlmModelId: settings.selectedLlmModelId,
+    selectedEndpoint: selectedEndpoint
+      ? {
+          id: selectedEndpoint.id,
+          name: selectedEndpoint.name,
+          endpoint: selectedEndpoint.endpoint,
+          apiKeyConfigured: selectedEndpoint.apiKey.trim() !== "",
+        }
+      : null,
+    selectedModel: selectedModel
+      ? {
+          id: selectedModel.id,
+          endpointId: selectedModel.endpointId,
+          modelName: selectedModel.modelName,
+        }
+      : null,
+  };
+}
+
+function logLlmResolutionFailure(
+  context: string,
+  settings: Settings,
+  error: string,
+): void {
+  console.error(`${context}: ${error}`, getLlmDebugInfo(settings));
+}
 
 /**
  * メッセージハンドラーの初期化
@@ -43,17 +125,17 @@ function initializeMessageHandlers(): void {
       (
         request: FrontendMessage,
         _sender: chrome.runtime.MessageSender,
-        sendResponse: SendMessageResponse,
+        sendResponse: (response: MessageResponse) => void,
       ) => {
         if (request.type === "EXTRACT_CONTENT") {
-          return respondAsync(
+          return sendAsyncMessageResponse(
             handleExtractContentMessage(request.url),
             sendResponse,
           );
         }
 
         if (request.type === "SUMMARIZE_TEST") {
-          return respondAsync(
+          return sendAsyncMessageResponse(
             handleSummarizeTestMessage(
               request.title,
               request.url,
@@ -64,7 +146,7 @@ function initializeMessageHandlers(): void {
         }
 
         if (request.type === "SLACK_TEST") {
-          return respondAsync(
+          return sendAsyncMessageResponse(
             handleSlackTestMessage(
               request.title,
               request.url,
@@ -76,44 +158,16 @@ function initializeMessageHandlers(): void {
         }
 
         if (request.type === "MANUAL_EXECUTE") {
-          return respondAsync(handleManualExecuteMessage(), sendResponse);
+          return sendAsyncMessageResponse(
+            handleManualExecuteMessage(),
+            sendResponse,
+          );
         }
 
         return false;
       },
     );
   }
-}
-
-function normalizeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function createExtractFailureResult(error: unknown): ExtractContentResult {
-  return {
-    success: false,
-    error: normalizeErrorMessage(error),
-    outcome: "local-failed-no-fallback",
-    attempts: [],
-  };
-}
-
-function createMessageFailureResult(error: unknown): ManualExecuteResult {
-  return {
-    success: false,
-    error: normalizeErrorMessage(error),
-  };
-}
-
-function respondAsync(
-  operation: Promise<MessageResponse>,
-  sendResponse: SendMessageResponse,
-): true {
-  operation.then(sendResponse).catch((error: unknown) => {
-    sendResponse(createMessageFailureResult(error));
-  });
-
-  return true;
 }
 
 /**
@@ -140,36 +194,31 @@ async function handleSummarizeTestMessage(
 ): Promise<SummarizeResult> {
   try {
     const settings = await getSettings();
+    const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
-    if (
-      !settings.openaiEndpoint ||
-      !settings.openaiApiKey ||
-      !settings.openaiModel
-    ) {
+    if (!llmConfig) {
+      logLlmResolutionFailure(
+        "要約テスト用LLM設定の解決に失敗",
+        settings,
+        error || "LLM設定の解決に失敗しました。",
+      );
       return {
         success: false,
-        error:
-          "OpenAI設定（エンドポイント、APIキー、モデル名）が不完全です。設定を保存してからお試しください。",
+        error: error || "LLM設定の解決に失敗しました。",
       };
     }
-
-    const summarizerConfig: SummarizerConfig = {
-      endpoint: settings.openaiEndpoint,
-      apiKey: settings.openaiApiKey,
-      model: settings.openaiModel,
-    };
 
     return await summarizeContent(
       title,
       url,
       content,
-      summarizerConfig,
-      settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+      createSummarizerConfig(llmConfig),
+      getSystemPrompt(settings),
     );
   } catch (error) {
     return {
       success: false,
-      error: normalizeErrorMessage(error),
+      error: getErrorMessage(error),
     };
   }
 }
@@ -182,7 +231,7 @@ async function handleSlackTestMessage(
   url: string,
   modelName: string,
   summary: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<SlackTestResult> {
   try {
     const settings = await getSettings();
 
@@ -201,7 +250,7 @@ async function handleSlackTestMessage(
   } catch (error) {
     return {
       success: false,
-      error: normalizeErrorMessage(error),
+      error: getErrorMessage(error),
     };
   }
 }
@@ -309,33 +358,29 @@ async function processSummarization(
   content: string,
   settings: Settings,
 ): Promise<void> {
-  const {
-    openaiEndpoint,
-    openaiApiKey,
-    openaiModel,
-    slackWebhookUrl,
-    systemPrompt,
-  } = settings;
+  const { slackWebhookUrl } = settings;
+  const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
-  if (!openaiEndpoint || !openaiApiKey || !openaiModel || !slackWebhookUrl) {
+  if (!llmConfig || !slackWebhookUrl) {
+    if (!llmConfig) {
+      logLlmResolutionFailure(
+        `既読化エントリの要約をスキップ: ${entry.title}`,
+        settings,
+        error || "LLM設定の解決に失敗しました。",
+      );
+    }
     console.warn(
-      "OpenAI設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
+      "LLM設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
     );
     return;
   }
-
-  const summarizerConfig: SummarizerConfig = {
-    endpoint: openaiEndpoint,
-    apiKey: openaiApiKey,
-    model: openaiModel,
-  };
 
   const summarizeResult = await summarizeContent(
     entry.title,
     entry.url,
     content,
-    summarizerConfig,
-    systemPrompt || DEFAULT_SYSTEM_PROMPT,
+    createSummarizerConfig(llmConfig),
+    getSystemPrompt(settings),
   );
 
   let slackMessage: string;
@@ -343,14 +388,14 @@ async function processSummarization(
     slackMessage = formatSlackMessage(
       entry.title,
       entry.url,
-      openaiModel,
+      llmConfig.modelName,
       summarizeResult.summary,
     );
   } else {
     slackMessage = formatSlackErrorMessage(
       entry.title,
       entry.url,
-      openaiModel,
+      llmConfig.modelName,
       summarizeResult.error || "不明なエラー",
     );
   }
@@ -366,14 +411,16 @@ async function notifyExtractionError(
   settings: Settings,
   error?: string,
 ): Promise<void> {
-  if (!settings.slackWebhookUrl || !settings.openaiModel) {
+  const selectedModel = getSelectedLlmModel(settings);
+
+  if (!settings.slackWebhookUrl || !selectedModel?.modelName.trim()) {
     return;
   }
 
   const errorMessage = formatSlackErrorMessage(
     entry.title,
     entry.url,
-    settings.openaiModel,
+    selectedModel.modelName,
     `本文抽出失敗: ${error}`,
   );
   await postToSlack(settings.slackWebhookUrl, errorMessage);

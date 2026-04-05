@@ -20,6 +20,14 @@ export interface SummarizerConfig {
   model: string;
 }
 
+interface ChatCompletionResponseLike {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }>;
+}
+
 /**
  * 指数バックオフでのリトライ用の遅延時間を計算
  */
@@ -35,6 +43,52 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isChatCompletionResponseLike(
+  response: unknown,
+): response is ChatCompletionResponseLike {
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    "choices" in response &&
+    Array.isArray(response.choices)
+  );
+}
+
+function createInvalidResponseErrorMessage(config: SummarizerConfig): string {
+  return [
+    "要約APIから期待した形式のレスポンスを受け取れませんでした。",
+    `確認候補: エンドポイントURL (${config.endpoint}) が正しいか、モデル名 (${config.model}) が存在するか、接続先が OpenAI 互換の chat completions API を提供しているか、認証設定が接続先の仕様と一致しているか。`,
+  ].join(" ");
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function extractSummaryFromResponse(
+  response: unknown,
+  config: SummarizerConfig,
+): string {
+  if (
+    !isChatCompletionResponseLike(response) ||
+    !Array.isArray(response.choices)
+  ) {
+    console.error("要約APIレスポンス形式エラー:", {
+      endpoint: config.endpoint,
+      model: config.model,
+      response,
+    });
+    throw new Error(createInvalidResponseErrorMessage(config));
+  }
+
+  const summary = response.choices[0]?.message?.content?.trim();
+  if (!summary) {
+    throw new Error("要約結果が空です");
+  }
+
+  return summary;
+}
+
 /**
  * OpenAI APIを使用してコンテンツを要約
  * リトライ機能付き（指数バックオフで最大3回まで）
@@ -47,16 +101,16 @@ export async function summarizeContent(
   systemPrompt: string,
 ): Promise<SummarizeResult> {
   const maxRetries = 3;
+  const client = new OpenAI({
+    baseURL: config.endpoint,
+    apiKey: config.apiKey,
+  });
+  const userPrompt = `以下のWebページを要約してください：\n\nタイトル: ${title}\nURL: ${url}\n\n内容:\n${content}`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     console.log(`要約開始 (試行 ${attempt}/${maxRetries}): ${title}`);
 
     try {
-      const client = new OpenAI({
-        baseURL: config.endpoint,
-        apiKey: config.apiKey,
-      });
-
       const response = await client.chat.completions.create({
         model: config.model,
         messages: [
@@ -66,17 +120,13 @@ export async function summarizeContent(
           },
           {
             role: "user",
-            content: `以下のWebページを要約してください：\n\nタイトル: ${title}\nURL: ${url}\n\n内容:\n${content}`,
+            content: userPrompt,
           },
         ],
         stream: false,
       });
 
-      const summary = response.choices[0]?.message?.content?.trim();
-
-      if (!summary) {
-        throw new Error("要約結果が空です");
-      }
+      const summary = extractSummaryFromResponse(response, config);
 
       console.log(`要約生成成功 (試行 ${attempt}): ${title}`);
       console.log(`生成された要約 (${summary.length}文字): ${summary}`);
@@ -88,8 +138,7 @@ export async function summarizeContent(
         modelName: config.model,
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       console.error(
         `要約失敗 (試行 ${attempt}/${maxRetries}): ${errorMessage}`,
       );
