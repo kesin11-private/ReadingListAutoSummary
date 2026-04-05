@@ -19,13 +19,32 @@ vi.mock("openai", () => ({
   })),
 }));
 
-describe("summarizer", () => {
-  const config: SummarizerConfig = {
-    endpoint: "https://api.openai.com/v1",
-    apiKey: "test-key",
-    model: "gpt-4",
-  };
+async function advanceRetryDelays(): Promise<void> {
+  vi.advanceTimersByTime(1000);
+  await vi.runOnlyPendingTimersAsync();
+  vi.advanceTimersByTime(2000);
+  await vi.runOnlyPendingTimersAsync();
+}
 
+const config: SummarizerConfig = {
+  endpoint: "https://api.openai.com/v1",
+  apiKey: "test-key",
+  model: "gpt-4",
+};
+
+function summarizeTestContent(
+  systemPrompt = DEFAULT_SYSTEM_PROMPT,
+): ReturnType<typeof summarizeContent> {
+  return summarizeContent(
+    "テストタイトル",
+    "https://example.com",
+    "テストコンテンツ",
+    config,
+    systemPrompt,
+  );
+}
+
+describe("summarizer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.clearAllTimers();
@@ -49,13 +68,7 @@ describe("summarizer", () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const result = await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const result = await summarizeTestContent();
 
       expect(result).toStrictEqual({
         success: true,
@@ -77,19 +90,9 @@ describe("summarizer", () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
-      // タイマーを進めてリトライを実行
-      vi.advanceTimersByTime(1000); // 1回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
-      vi.advanceTimersByTime(2000); // 2回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
+      await advanceRetryDelays();
 
       const result = await resultPromise;
 
@@ -105,19 +108,9 @@ describe("summarizer", () => {
       const apiError = new Error("API Error");
       mockCreate.mockRejectedValue(apiError);
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
-      // タイマーを進めてリトライを実行
-      vi.advanceTimersByTime(1000); // 1回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
-      vi.advanceTimersByTime(2000); // 2回目のリトライ
-      await vi.runOnlyPendingTimersAsync();
+      await advanceRetryDelays();
 
       const result = await resultPromise;
 
@@ -128,6 +121,28 @@ describe("summarizer", () => {
         modelName: "gpt-4",
       });
       expect(mockCreate).toHaveBeenCalledTimes(3);
+    });
+
+    it("OpenAI互換ではないレスポンスの場合は確認ポイント付きで失敗する", async () => {
+      mockCreate.mockResolvedValue({
+        unexpected: true,
+      });
+
+      const resultPromise = summarizeTestContent();
+
+      await advanceRetryDelays();
+
+      const result = await resultPromise;
+
+      expect(result.success).toBe(false);
+      expect(result.retryCount).toBe(3);
+      expect(result.modelName).toBe("gpt-4");
+      expect(result.error).toContain(
+        "要約APIから期待した形式のレスポンスを受け取れませんでした。",
+      );
+      expect(result.error).toContain("エンドポイントURL");
+      expect(result.error).toContain("モデル名");
+      expect(result.error).toContain("OpenAI 互換");
     });
 
     it("2回目のリトライで成功", async () => {
@@ -146,13 +161,7 @@ describe("summarizer", () => {
         .mockRejectedValueOnce(apiError)
         .mockResolvedValueOnce(mockResponse);
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
       // 1回目のリトライまでタイマーを進める
       vi.advanceTimersByTime(1000);
@@ -181,13 +190,7 @@ describe("summarizer", () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      await summarizeTestContent();
 
       expect(mockCreate).toHaveBeenCalledWith({
         model: "gpt-4",
@@ -220,13 +223,7 @@ describe("summarizer", () => {
       mockCreate.mockResolvedValue(mockResponse);
       const customPrompt = "カスタムプロンプトです";
 
-      await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        customPrompt,
-      );
+      await summarizeTestContent(customPrompt);
 
       expect(mockCreate).toHaveBeenCalledWith({
         model: "gpt-4",

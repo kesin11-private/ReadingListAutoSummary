@@ -1,4 +1,4 @@
-import { render } from "preact";
+import { type JSX, render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../styles/tailwind.css";
 import {
@@ -16,16 +16,144 @@ import {
   DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
   DEFAULT_FIRECRAWL_BASE_URL,
 } from "../../common/constants";
+import {
+  deriveLlmEndpointName,
+  getLlmModelsForEndpoint,
+  getSelectedLlmEndpoint,
+  getSelectedLlmModel,
+  type LlmEndpointConfig,
+  type LlmModelConfig,
+  normalizeLlmSettings,
+} from "../../common/llm_settings";
+import type { ManualExecuteResult } from "../../types/messages";
 import { ContentExtractorTest } from "./ContentExtractorTest";
 
 type SaveStatus = "idle" | "success" | "error";
 
-function formatSettingsForUi(settings: Settings): Settings {
+function createId(prefix: string): string {
+  if (globalThis.crypto?.randomUUID) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isManualExecuteResponse(
+  response: unknown,
+): response is ManualExecuteResult {
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    "success" in response &&
+    typeof response.success === "boolean"
+  );
+}
+
+function updateItemById<T extends { id: string }>(
+  items: T[],
+  id: string,
+  updater: (item: T) => T,
+): T[] {
+  return items.map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+
+    return updater(item);
+  });
+}
+
+function formatEndpointLabel(
+  endpoint: LlmEndpointConfig,
+  index: number,
+): string {
+  if (endpoint.name.trim()) {
+    return endpoint.name;
+  }
+
+  return deriveLlmEndpointName(endpoint.endpoint, `Endpoint ${index + 1}`);
+}
+
+function getModelOptionLabel(model: LlmModelConfig, index: number): string {
+  if (model.modelName) {
+    return model.modelName;
+  }
+
+  return `Model ${index + 1}`;
+}
+
+function getProviderLabel(provider: ContentExtractorProvider): string {
+  if (provider === "tavily") {
+    return "Tavily";
+  }
+
+  return "Firecrawl";
+}
+
+function getSelectedProvider(settings: Settings): ContentExtractorProvider {
+  return (
+    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER
+  );
+}
+
+function sanitizeEditableSettings(settings: Settings): Settings {
   return {
     ...settings,
-    openaiEndpoint: settings.openaiEndpoint || "",
-    openaiApiKey: settings.openaiApiKey || "",
-    openaiModel: settings.openaiModel || "",
+    slackWebhookUrl: settings.slackWebhookUrl?.trim() || "",
+    tavilyApiKey: settings.tavilyApiKey?.trim() || "",
+    firecrawlApiKey: settings.firecrawlApiKey?.trim() || "",
+    firecrawlBaseUrl:
+      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL,
+  };
+}
+
+function getValidationErrorMessage(errors: string[]): string {
+  return errors[0] || "バリデーションエラーが発生しました";
+}
+
+function clearSaveMessageAfterDelay(
+  setSaveStatus: (value: SaveStatus) => void,
+  setSaveMessage: (value: string) => void,
+): void {
+  setTimeout(() => {
+    setSaveStatus("idle");
+    setSaveMessage("");
+  }, 3000);
+}
+
+function clearManualMessageAfterDelay(
+  setManualMessage: (value: string | null) => void,
+): void {
+  setTimeout(() => setManualMessage(null), 3000);
+}
+
+function getSaveStatusClassName(saveStatus: SaveStatus): string {
+  return saveStatus === "success" ? "text-green-600" : "text-red-600";
+}
+
+function toNumber(value: string): number {
+  return Number(value);
+}
+
+export function formatSettingsForUi(settings: Settings): Settings {
+  return normalizeLlmSettings({
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    llmEndpoints: settings.llmEndpoints.map((endpoint, index) => {
+      const trimmedName = endpoint.name.trim();
+
+      return {
+        ...endpoint,
+        name: trimmedName || formatEndpointLabel(endpoint, index),
+      };
+    }),
+    llmModels: settings.llmModels,
+    selectedLlmEndpointId: settings.selectedLlmEndpointId,
+    selectedLlmModelId: settings.selectedLlmModelId,
     slackWebhookUrl: settings.slackWebhookUrl || "",
     contentExtractorProvider:
       settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
@@ -33,10 +161,156 @@ function formatSettingsForUi(settings: Settings): Settings {
     firecrawlApiKey: settings.firecrawlApiKey || "",
     firecrawlBaseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
     systemPrompt: settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+  });
+}
+
+export function addLlmEndpoint(settings: Settings): Settings {
+  const newEndpoint: LlmEndpointConfig = {
+    id: createId("endpoint"),
+    name: `Endpoint ${settings.llmEndpoints.length + 1}`,
+    endpoint: "",
+    apiKey: "",
+  };
+
+  return normalizeLlmSettings({
+    ...settings,
+    llmEndpoints: [...settings.llmEndpoints, newEndpoint],
+    selectedLlmEndpointId: newEndpoint.id,
+    selectedLlmModelId: null,
+  });
+}
+
+export function selectLlmEndpoint(
+  settings: Settings,
+  endpointId: string,
+): Settings {
+  const models = getLlmModelsForEndpoint(settings, endpointId);
+
+  return normalizeLlmSettings({
+    ...settings,
+    selectedLlmEndpointId: endpointId,
+    selectedLlmModelId: models[0]?.id ?? null,
+  });
+}
+
+export function updateSelectedLlmEndpoint(
+  settings: Settings,
+  field: "name" | "endpoint" | "apiKey",
+  value: string,
+): Settings {
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  if (!selectedEndpoint) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    llmEndpoints: updateItemById(
+      settings.llmEndpoints,
+      selectedEndpoint.id,
+      (endpoint) => ({
+        ...endpoint,
+        [field]: value,
+      }),
+    ),
   };
 }
 
-function App() {
+export function removeSelectedLlmEndpoint(settings: Settings): Settings {
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  if (!selectedEndpoint) {
+    return settings;
+  }
+
+  const llmEndpoints = settings.llmEndpoints.filter(
+    (endpoint) => endpoint.id !== selectedEndpoint.id,
+  );
+  const llmModels = settings.llmModels.filter(
+    (model) => model.endpointId !== selectedEndpoint.id,
+  );
+  const nextEndpointId = llmEndpoints[0]?.id ?? null;
+  const nextModelId =
+    llmModels.find((model) => model.endpointId === nextEndpointId)?.id ?? null;
+
+  return normalizeLlmSettings({
+    ...settings,
+    llmEndpoints,
+    llmModels,
+    selectedLlmEndpointId: nextEndpointId,
+    selectedLlmModelId: nextModelId,
+  });
+}
+
+export function addLlmModel(settings: Settings): Settings {
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  if (!selectedEndpoint) {
+    return settings;
+  }
+
+  const newModel: LlmModelConfig = {
+    id: createId("model"),
+    endpointId: selectedEndpoint.id,
+    modelName: "",
+  };
+
+  return normalizeLlmSettings({
+    ...settings,
+    llmModels: [...settings.llmModels, newModel],
+    selectedLlmModelId: newModel.id,
+  });
+}
+
+export function selectLlmModel(settings: Settings, modelId: string): Settings {
+  return normalizeLlmSettings({
+    ...settings,
+    selectedLlmModelId: modelId,
+  });
+}
+
+export function updateSelectedLlmModel(
+  settings: Settings,
+  value: string,
+): Settings {
+  const selectedModel = getSelectedLlmModel(settings);
+  if (!selectedModel) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    llmModels: updateItemById(
+      settings.llmModels,
+      selectedModel.id,
+      (model) => ({
+        ...model,
+        modelName: value,
+      }),
+    ),
+  };
+}
+
+export function removeSelectedLlmModel(settings: Settings): Settings {
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  const selectedModel = getSelectedLlmModel(settings);
+  if (!selectedEndpoint || !selectedModel) {
+    return settings;
+  }
+
+  const llmModels = settings.llmModels.filter(
+    (model) => model.id !== selectedModel.id,
+  );
+  const nextModelId =
+    llmModels.find((model) => model.endpointId === selectedEndpoint.id)?.id ??
+    null;
+
+  return normalizeLlmSettings({
+    ...settings,
+    llmModels,
+    selectedLlmModelId: nextModelId,
+  });
+}
+
+export function App(): JSX.Element {
   const [settings, setSettings] = useState<Settings>(
     formatSettingsForUi(DEFAULT_SETTINGS),
   );
@@ -47,8 +321,7 @@ function App() {
   const [isManualRunning, setIsManualRunning] = useState(false);
   const [manualMessage, setManualMessage] = useState<string | null>(null);
 
-  // 設定を読み込み
-  const loadSettings = async () => {
+  async function loadSettings(): Promise<void> {
     try {
       const loadedSettings = await getSettings();
       setSettings(formatSettingsForUi(loadedSettings));
@@ -59,41 +332,19 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  // 設定を保存
-  const handleSaveSettings = async () => {
+  async function handleSaveSettings(): Promise<void> {
     setIsSaving(true);
     setSaveStatus("idle");
     setSaveMessage("");
 
-    const sanitizedSettings: Settings = { ...settings };
-
-    const trimmedTavilyApiKey = settings.tavilyApiKey?.trim();
-    if (trimmedTavilyApiKey) {
-      sanitizedSettings.tavilyApiKey = trimmedTavilyApiKey;
-    } else {
-      delete sanitizedSettings.tavilyApiKey;
-    }
-
-    const trimmedFirecrawlApiKey = settings.firecrawlApiKey?.trim();
-    if (trimmedFirecrawlApiKey) {
-      sanitizedSettings.firecrawlApiKey = trimmedFirecrawlApiKey;
-    } else {
-      delete sanitizedSettings.firecrawlApiKey;
-    }
-
-    sanitizedSettings.firecrawlBaseUrl =
-      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL;
-
-    // バリデーション
-    const { errors: validationErrors, validatedSettings } =
-      validateSettings(sanitizedSettings);
+    const { errors: validationErrors, validatedSettings } = validateSettings(
+      sanitizeEditableSettings(settings),
+    );
     if (validationErrors.length > 0) {
       setSaveStatus("error");
-      setSaveMessage(
-        validationErrors[0] || "バリデーションエラーが発生しました",
-      ); // 最初のエラーメッセージを表示
+      setSaveMessage(getValidationErrorMessage(validationErrors));
       setIsSaving(false);
       return;
     }
@@ -107,13 +358,10 @@ function App() {
 
     try {
       await saveSettingsToStorage(validatedSettings);
-      setSettings(formatSettingsForUi(sanitizedSettings));
+      setSettings(formatSettingsForUi(validatedSettings));
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
-      setTimeout(() => {
-        setSaveStatus("idle");
-        setSaveMessage("");
-      }, 3000);
+      clearSaveMessageAfterDelay(setSaveStatus, setSaveMessage);
     } catch (error) {
       console.error("設定保存エラー:", error);
       setSaveStatus("error");
@@ -121,54 +369,57 @@ function App() {
     } finally {
       setIsSaving(false);
     }
-  };
+  }
 
-  // 初回読み込み
   useEffect(() => {
     loadSettings();
   }, []);
 
-  const handleInputChange = (field: keyof Settings, value: string | number) => {
+  function handleInputChange(
+    field: keyof Settings,
+    value: string | number,
+  ): void {
     setSettings((prev) => ({
       ...prev,
       [field]: value,
     }));
-  };
+  }
 
-  const handleResetToDefault = () => {
+  function handleResetToDefault(): void {
     setSettings((prev) => ({
       ...prev,
       systemPrompt: DEFAULT_SYSTEM_PROMPT,
     }));
-  };
+  }
 
-  const handleManualExecute = async () => {
+  async function handleManualExecute(): Promise<void> {
     setIsManualRunning(true);
     setManualMessage(null);
+
     try {
       const response = await chrome.runtime.sendMessage({
         type: "MANUAL_EXECUTE",
       });
-      if (response && typeof response === "object" && "success" in response) {
-        setManualMessage(
-          response.success
-            ? "実行が完了しました"
-            : `実行に失敗しました: ${response.error || "不明なエラー"}`,
-        );
-      } else {
+
+      if (!isManualExecuteResponse(response)) {
         setManualMessage("不正なレスポンス形式です");
+        return;
+      }
+
+      if (response.success) {
+        setManualMessage("実行が完了しました");
+      } else {
+        setManualMessage(
+          `実行に失敗しました: ${response.error || "不明なエラー"}`,
+        );
       }
     } catch (error) {
-      setManualMessage(
-        error instanceof Error
-          ? `実行エラー: ${error.message}`
-          : `実行エラー: ${String(error)}`,
-      );
+      setManualMessage(`実行エラー: ${getErrorMessage(error)}`);
     } finally {
       setIsManualRunning(false);
-      setTimeout(() => setManualMessage(null), 3000);
+      clearManualMessageAfterDelay(setManualMessage);
     }
-  };
+  }
 
   if (isLoading) {
     return (
@@ -178,11 +429,16 @@ function App() {
     );
   }
 
-  const selectedProvider: ContentExtractorProvider =
-    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
+  const selectedProvider = getSelectedProvider(settings);
+  const selectedEndpoint = getSelectedLlmEndpoint(settings);
+  const modelsForSelectedEndpoint = getLlmModelsForEndpoint(
+    settings,
+    selectedEndpoint?.id ?? null,
+  );
+  const selectedModel = getSelectedLlmModel(settings);
 
   return (
-    <main class="p-6 max-w-2xl mx-auto">
+    <main class="p-6 max-w-3xl mx-auto">
       <h1 class="text-2xl font-bold mb-6">Reading List Auto Summary 設定</h1>
 
       <form
@@ -192,7 +448,6 @@ function App() {
         }}
         class="space-y-6"
       >
-        {/* 自動処理設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
           <h2 class="text-lg font-semibold mb-4">自動処理設定</h2>
 
@@ -215,7 +470,7 @@ function App() {
                 onInput={(e) =>
                   handleInputChange(
                     "alarmIntervalMinutes",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -224,6 +479,7 @@ function App() {
                 バックグラウンドの自動処理を起動する間隔（分）。最小1分。
               </p>
             </div>
+
             <div>
               <label
                 for="daysUntilRead"
@@ -240,7 +496,7 @@ function App() {
                 onInput={(e) =>
                   handleInputChange(
                     "daysUntilRead",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -266,7 +522,7 @@ function App() {
                 onInput={(e) =>
                   handleInputChange(
                     "daysUntilDelete",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -293,7 +549,7 @@ function App() {
                 onInput={(e) =>
                   handleInputChange(
                     "maxEntriesPerRun",
-                    Number((e.target as HTMLInputElement).value),
+                    toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -304,7 +560,6 @@ function App() {
             </div>
           </div>
 
-          {/* 手動実行ボタン（このセクションの末尾） */}
           <div class="mt-4 flex items-center gap-3">
             <button
               type="button"
@@ -320,80 +575,254 @@ function App() {
           </div>
         </section>
 
-        {/* AI要約設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
-          <h2 class="text-lg font-semibold mb-4">AI要約設定</h2>
+          <div class="flex items-center justify-between mb-4 gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">AI要約設定</h2>
+              <p class="text-xs text-gray-500 mt-1">
+                エンドポイントを削除すると、その配下のモデルもまとめて削除されます。
+              </p>
+            </div>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSettings((prev) => addLlmEndpoint(prev))}
+                class="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                エンドポイントを追加
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => removeSelectedLlmEndpoint(prev))
+                }
+                disabled={!selectedEndpoint}
+                class="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                選択中を削除
+              </button>
+            </div>
+          </div>
 
           <div class="grid gap-4">
             <div>
               <label
-                for="openaiEndpoint"
+                for="selectedLlmEndpointId"
                 class="block text-sm font-medium text-gray-700 mb-1"
               >
-                OpenAI API エンドポイント
+                使用するエンドポイント
               </label>
-              <input
-                id="openaiEndpoint"
-                type="url"
-                placeholder="https://api.openai.com/v1"
-                value={settings.openaiEndpoint}
-                onInput={(e) =>
-                  handleInputChange(
-                    "openaiEndpoint",
-                    (e.target as HTMLInputElement).value,
+              <select
+                id="selectedLlmEndpointId"
+                value={selectedEndpoint?.id ?? ""}
+                onChange={(e) =>
+                  setSettings((prev) =>
+                    selectLlmEndpoint(
+                      prev,
+                      (e.target as HTMLSelectElement).value,
+                    ),
                   )
                 }
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              >
+                {settings.llmEndpoints.length === 0 ? (
+                  <option value="">エンドポイントがありません</option>
+                ) : (
+                  settings.llmEndpoints.map((endpoint, index) => (
+                    <option key={endpoint.id} value={endpoint.id}>
+                      {formatEndpointLabel(endpoint, index)}
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
 
-            <div>
-              <label
-                for="openaiApiKey"
-                class="block text-sm font-medium text-gray-700 mb-1"
-              >
-                OpenAI API キー
-              </label>
-              <input
-                id="openaiApiKey"
-                type="password"
-                placeholder="sk-..."
-                value={settings.openaiApiKey}
-                onInput={(e) =>
-                  handleInputChange(
-                    "openaiApiKey",
-                    (e.target as HTMLInputElement).value,
-                  )
-                }
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            {selectedEndpoint ? (
+              <div class="grid gap-4 border border-gray-200 rounded-md p-4 bg-white">
+                <div>
+                  <label
+                    for="llmEndpointName"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    エンドポイント表示名
+                  </label>
+                  <input
+                    id="llmEndpointName"
+                    type="text"
+                    value={selectedEndpoint.name}
+                    onInput={(e) =>
+                      setSettings((prev) =>
+                        updateSelectedLlmEndpoint(
+                          prev,
+                          "name",
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      )
+                    }
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
-            <div>
-              <label
-                for="openaiModel"
-                class="block text-sm font-medium text-gray-700 mb-1"
-              >
-                OpenAI モデル
-              </label>
-              <input
-                id="openaiModel"
-                type="text"
-                placeholder="gpt-4o-mini"
-                value={settings.openaiModel}
-                onInput={(e) =>
-                  handleInputChange(
-                    "openaiModel",
-                    (e.target as HTMLInputElement).value,
-                  )
-                }
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                <div>
+                  <label
+                    for="llmEndpointUrl"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    LLM API エンドポイント
+                  </label>
+                  <input
+                    id="llmEndpointUrl"
+                    type="url"
+                    placeholder="https://api.openai.com/v1"
+                    value={selectedEndpoint.endpoint}
+                    onInput={(e) =>
+                      setSettings((prev) =>
+                        updateSelectedLlmEndpoint(
+                          prev,
+                          "endpoint",
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      )
+                    }
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    for="llmEndpointApiKey"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    API キー
+                  </label>
+                  <input
+                    id="llmEndpointApiKey"
+                    type="password"
+                    placeholder="sk-..."
+                    value={selectedEndpoint.apiKey}
+                    onInput={(e) =>
+                      setSettings((prev) =>
+                        updateSelectedLlmEndpoint(
+                          prev,
+                          "apiKey",
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      )
+                    }
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500">
+                    ローカルLLMなどAPIキー不要のエンドポイントでは空欄でも利用できます
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p class="text-sm text-gray-500">
+                エンドポイントを追加すると、ここで接続先と API
+                キーを管理できます。
+              </p>
+            )}
+
+            <div class="border-t border-gray-200 pt-4">
+              <div class="flex items-center justify-between mb-4 gap-3">
+                <div>
+                  <h3 class="text-md font-semibold">モデル管理</h3>
+                  <p class="text-xs text-gray-500 mt-1">
+                    選択中のエンドポイントに紐づくモデルのみ表示されます。
+                  </p>
+                </div>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSettings((prev) => addLlmModel(prev))}
+                    disabled={!selectedEndpoint}
+                    class="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    モデルを追加
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettings((prev) => removeSelectedLlmModel(prev))
+                    }
+                    disabled={!selectedModel}
+                    class="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    選択中を削除
+                  </button>
+                </div>
+              </div>
+
+              <div class="grid gap-4">
+                <div>
+                  <label
+                    for="selectedLlmModelId"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    使用するモデル
+                  </label>
+                  <select
+                    id="selectedLlmModelId"
+                    value={selectedModel?.id ?? ""}
+                    onChange={(e) =>
+                      setSettings((prev) =>
+                        selectLlmModel(
+                          prev,
+                          (e.target as HTMLSelectElement).value,
+                        ),
+                      )
+                    }
+                    disabled={!selectedEndpoint}
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                  >
+                    {modelsForSelectedEndpoint.length === 0 ? (
+                      <option value="">モデルがありません</option>
+                    ) : (
+                      modelsForSelectedEndpoint.map((model, index) => (
+                        <option key={model.id} value={model.id}>
+                          {getModelOptionLabel(model, index)}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                {selectedModel ? (
+                  <div class="grid gap-4 border border-gray-200 rounded-md p-4 bg-white">
+                    <div>
+                      <label
+                        for="llmModelName"
+                        class="block text-sm font-medium text-gray-700 mb-1"
+                      >
+                        モデル名
+                      </label>
+                      <input
+                        id="llmModelName"
+                        type="text"
+                        placeholder="gpt-4o-mini"
+                        value={selectedModel.modelName}
+                        onInput={(e) =>
+                          setSettings((prev) =>
+                            updateSelectedLlmModel(
+                              prev,
+                              (e.target as HTMLInputElement).value,
+                            ),
+                          )
+                        }
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p class="text-sm text-gray-500">
+                    モデルを追加すると、選択中エンドポイント用のモデル名を保存できます。
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </section>
 
-        {/* 要約設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
           <h2 class="text-lg font-semibold mb-4">要約設定</h2>
 
@@ -432,7 +861,6 @@ function App() {
           </div>
         </section>
 
-        {/* コンテンツ抽出設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
           <h2 class="text-lg font-semibold mb-4">コンテンツ抽出設定</h2>
 
@@ -458,7 +886,7 @@ function App() {
               >
                 {CONTENT_EXTRACTOR_PROVIDERS.map((provider) => (
                   <option key={provider} value={provider}>
-                    {provider === "tavily" ? "Tavily" : "Firecrawl"}
+                    {getProviderLabel(provider)}
                   </option>
                 ))}
               </select>
@@ -546,10 +974,6 @@ function App() {
           </div>
         </section>
 
-        {/* コンテンツ抽出テスト */}
-        <ContentExtractorTest provider={selectedProvider} />
-
-        {/* Slack通知設定 */}
         <section class="bg-gray-50 p-4 rounded-lg">
           <h2 class="text-lg font-semibold mb-4">Slack通知設定</h2>
 
@@ -564,7 +988,7 @@ function App() {
               id="slackWebhookUrl"
               type="url"
               placeholder="https://hooks.slack.com/services/..."
-              value={settings.slackWebhookUrl}
+              value={settings.slackWebhookUrl || ""}
               onInput={(e) =>
                 handleInputChange(
                   "slackWebhookUrl",
@@ -576,30 +1000,29 @@ function App() {
           </div>
         </section>
 
-        {/* 保存ボタン */}
         <div class="flex items-center gap-4">
           <button
             type="submit"
             disabled={isSaving}
-            class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSaving ? "保存中..." : "設定を保存"}
           </button>
 
-          {saveMessage && (
-            <span
-              class={`text-sm ${saveStatus === "error" ? "text-red-600" : "text-green-600"}`}
-            >
+          {saveStatus !== "idle" && (
+            <span class={`text-sm ${getSaveStatusClassName(saveStatus)}`}>
               {saveMessage}
             </span>
           )}
         </div>
+
+        <ContentExtractorTest provider={selectedProvider} />
       </form>
     </main>
   );
 }
 
-const root = document.getElementById("root");
-if (root) {
-  render(<App />, root);
+const rootElement = document.getElementById("root");
+if (rootElement) {
+  render(<App />, rootElement);
 }

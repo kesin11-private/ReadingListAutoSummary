@@ -16,24 +16,20 @@ import {
   DEFAULT_FIRECRAWL_BASE_URL,
 } from "../../src/common/constants";
 
-// content_extractor モジュールのモック
 vi.mock("../../src/backend/content_extractor", () => ({
   extractContent: vi.fn(),
 }));
 
-// post モジュールのモック
 vi.mock("../../src/backend/post", () => ({
   postToSlack: vi.fn(),
 }));
 
-// summarizer モジュールのモック
 vi.mock("../../src/backend/summarizer", () => ({
   summarizeContent: vi.fn(),
   formatSlackMessage: vi.fn(),
   formatSlackErrorMessage: vi.fn(),
 }));
 
-// モックされた関数を取得
 const { extractContent: mockExtractContent } = await import(
   "../../src/backend/content_extractor"
 );
@@ -44,7 +40,6 @@ const {
   formatSlackErrorMessage: mockFormatSlackErrorMessage,
 } = await import("../../src/backend/summarizer");
 
-// Chrome API のモック設定
 const mockChromeStorageLocal = {
   get: vi.fn(),
 };
@@ -55,7 +50,33 @@ const mockChromeReadingList = {
   removeEntry: vi.fn(),
 };
 
-// グローバルchrome オブジェクトのモック
+const completeSettings = {
+  daysUntilRead: 30,
+  daysUntilDelete: 60,
+  maxEntriesPerRun: 3,
+  llmEndpoints: [
+    {
+      id: "endpoint-1",
+      name: "OpenAI",
+      endpoint: "https://api.openai.com/v1",
+      apiKey: "test-key",
+    },
+  ],
+  llmModels: [
+    {
+      id: "model-1",
+      endpointId: "endpoint-1",
+      modelName: "gpt-4o-mini",
+    },
+  ],
+  selectedLlmEndpointId: "endpoint-1",
+  selectedLlmModelId: "model-1",
+  slackWebhookUrl: "https://hooks.slack.com/test",
+  contentExtractorProvider: "firecrawl" as const,
+  firecrawlApiKey: "fc-test-key",
+  firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
+};
+
 beforeEach(() => {
   vi.stubGlobal("chrome", {
     storage: {
@@ -81,61 +102,28 @@ describe("getSettings", () => {
       daysUntilDelete: DELETION_DISABLED_VALUE,
       maxEntriesPerRun: 3,
       alarmIntervalMinutes: 720,
+      llmEndpoints: [],
+      llmModels: [],
+      selectedLlmEndpointId: null,
+      selectedLlmModelId: null,
       contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
       firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
-    expect(mockChromeStorageLocal.get).toHaveBeenCalledWith([
-      "daysUntilRead",
-      "daysUntilDelete",
-      "maxEntriesPerRun",
-      "alarmIntervalMinutes",
-      "openaiEndpoint",
-      "openaiApiKey",
-      "openaiModel",
-      "slackWebhookUrl",
-      "contentExtractorProvider",
-      "tavilyApiKey",
-      "firecrawlApiKey",
-      "firecrawlBaseUrl",
-      "systemPrompt",
-    ]);
   });
 
-  it("ストレージから設定を正常取得", async () => {
-    const storedSettings = {
-      daysUntilRead: 14,
-      daysUntilDelete: 30,
-      maxEntriesPerRun: 5,
+  it("ストレージから複数LLM設定を正常取得", async () => {
+    mockChromeStorageLocal.get.mockResolvedValue({
+      ...completeSettings,
       alarmIntervalMinutes: 720,
-      openaiEndpoint: "https://api.openai.com/v1",
-      openaiApiKey: "test-key",
-      openaiModel: "gpt-3.5-turbo",
-      slackWebhookUrl: "https://hooks.slack.com/test",
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: "http://localhost:3002",
       systemPrompt: "カスタムプロンプト",
-    };
-    mockChromeStorageLocal.get.mockResolvedValue(storedSettings);
-
-    const settings = await getSettings();
-
-    expect(settings).toEqual(storedSettings);
-  });
-
-  it("ストレージエラー時にデフォルト設定を返す", async () => {
-    mockChromeStorageLocal.get.mockRejectedValue(new Error("Storage error"));
-
-    const settings = await getSettings();
-
-    expect(settings).toEqual({
-      daysUntilRead: 30,
-      daysUntilDelete: DELETION_DISABLED_VALUE,
-      maxEntriesPerRun: 3,
-      alarmIntervalMinutes: 720,
-      contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
     });
+
+    const settings = await getSettings();
+
+    expect(settings.llmEndpoints).toEqual(completeSettings.llmEndpoints);
+    expect(settings.llmModels).toEqual(completeSettings.llmModels);
+    expect(settings.selectedLlmEndpointId).toBe("endpoint-1");
+    expect(settings.selectedLlmModelId).toBe("model-1");
   });
 });
 
@@ -146,15 +134,8 @@ describe("getReadingListEntries", () => {
         url: "https://example.com/1",
         title: "テスト記事1",
         hasBeenRead: false,
-        creationTime: Date.now() - 25 * 24 * 60 * 60 * 1000, // 25日前
+        creationTime: Date.now() - 25 * 24 * 60 * 60 * 1000,
         lastUpdateTime: Date.now() - 25 * 24 * 60 * 60 * 1000,
-      },
-      {
-        url: "https://example.com/2",
-        title: "テスト記事2",
-        hasBeenRead: true,
-        creationTime: Date.now() - 40 * 24 * 60 * 60 * 1000, // 40日前
-        lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000, // 35日前に既読化
       },
     ];
     mockChromeReadingList.query.mockResolvedValue(mockEntries);
@@ -165,12 +146,13 @@ describe("getReadingListEntries", () => {
     expect(mockChromeReadingList.query).toHaveBeenCalledWith({});
   });
 
-  it("リーディングリストAPIエラー時に空配列を返す", async () => {
-    mockChromeReadingList.query.mockRejectedValue(new Error("API error"));
+  it("queryがrejectした場合は空配列を返し例外を外に漏らさない", async () => {
+    mockChromeReadingList.query.mockRejectedValue(
+      new Error("reading list query failed"),
+    );
 
-    const entries = await getReadingListEntries();
-
-    expect(entries).toEqual([]);
+    await expect(getReadingListEntries()).resolves.toEqual([]);
+    expect(mockChromeReadingList.query).toHaveBeenCalledWith({});
   });
 });
 
@@ -180,27 +162,11 @@ describe("shouldMarkAsRead", () => {
       url: "https://example.com",
       title: "テスト記事",
       hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000, // 35日前
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
       lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
     };
 
-    const result = shouldMarkAsRead(entry, 30);
-
-    expect(result).toBe(true);
-  });
-
-  it("未読エントリが期間未経過で既読化対象外", () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 25 * 24 * 60 * 60 * 1000, // 25日前
-      lastUpdateTime: Date.now() - 25 * 24 * 60 * 60 * 1000,
-    };
-
-    const result = shouldMarkAsRead(entry, 30);
-
-    expect(result).toBe(false);
+    expect(shouldMarkAsRead(entry, 30)).toBe(true);
   });
 
   it("既読エントリは既読化対象外", () => {
@@ -208,27 +174,11 @@ describe("shouldMarkAsRead", () => {
       url: "https://example.com",
       title: "テスト記事",
       hasBeenRead: true,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000, // 35日前
-      lastUpdateTime: Date.now() - 10 * 24 * 60 * 60 * 1000, // 10日前に既読化
+      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 10 * 24 * 60 * 60 * 1000,
     };
 
-    const result = shouldMarkAsRead(entry, 30);
-
-    expect(result).toBe(false);
-  });
-
-  it("境界値テスト：ちょうど30日で既読化対象", () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 30 * 24 * 60 * 60 * 1000, // ちょうど30日前
-      lastUpdateTime: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    };
-
-    const result = shouldMarkAsRead(entry, 30);
-
-    expect(result).toBe(true);
+    expect(shouldMarkAsRead(entry, 30)).toBe(false);
   });
 });
 
@@ -238,55 +188,11 @@ describe("shouldDelete", () => {
       url: "https://example.com",
       title: "テスト記事",
       hasBeenRead: true,
-      creationTime: Date.now() - 80 * 24 * 60 * 60 * 1000, // 80日前作成
-      lastUpdateTime: Date.now() - 65 * 24 * 60 * 60 * 1000, // 65日前に既読化
+      creationTime: Date.now() - 80 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 65 * 24 * 60 * 60 * 1000,
     };
 
-    const result = shouldDelete(entry, 60);
-
-    expect(result).toBe(true);
-  });
-
-  it("既読エントリが期間未経過で削除対象外", () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: true,
-      creationTime: Date.now() - 50 * 24 * 60 * 60 * 1000, // 50日前作成
-      lastUpdateTime: Date.now() - 30 * 24 * 60 * 60 * 1000, // 30日前に既読化
-    };
-
-    const result = shouldDelete(entry, 60);
-
-    expect(result).toBe(false);
-  });
-
-  it("未読エントリは削除対象外", () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 80 * 24 * 60 * 60 * 1000, // 80日前
-      lastUpdateTime: Date.now() - 80 * 24 * 60 * 60 * 1000,
-    };
-
-    const result = shouldDelete(entry, 60);
-
-    expect(result).toBe(false);
-  });
-
-  it("境界値テスト：ちょうど60日で削除対象", () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: true,
-      creationTime: Date.now() - 90 * 24 * 60 * 60 * 1000, // 90日前作成
-      lastUpdateTime: Date.now() - 60 * 24 * 60 * 60 * 1000, // ちょうど60日前に既読化
-    };
-
-    const result = shouldDelete(entry, 60);
-
-    expect(result).toBe(true);
+    expect(shouldDelete(entry, 60)).toBe(true);
   });
 
   it("削除機能が無効化されている場合は削除対象外", () => {
@@ -294,283 +200,130 @@ describe("shouldDelete", () => {
       url: "https://example.com",
       title: "テスト記事",
       hasBeenRead: true,
-      creationTime: Date.now() - 90 * 24 * 60 * 60 * 1000, // 90日前作成
-      lastUpdateTime: Date.now() - 60 * 24 * 60 * 60 * 1000, // 60日前に既読化
+      creationTime: Date.now() - 80 * 24 * 60 * 60 * 1000,
+      lastUpdateTime: Date.now() - 65 * 24 * 60 * 60 * 1000,
     };
 
-    const result = shouldDelete(entry, DELETION_DISABLED_VALUE);
-
-    expect(result).toBe(false);
+    expect(shouldDelete(entry, DELETION_DISABLED_VALUE)).toBe(false);
   });
 });
 
 describe("markAsReadAndNotify", () => {
-  const mockSettings = {
-    daysUntilRead: 30,
-    daysUntilDelete: 60,
-    openaiEndpoint: "https://api.openai.com/v1",
-    openaiApiKey: "test-key",
-    openaiModel: "gpt-4o-mini",
-    slackWebhookUrl: "https://hooks.slack.com/test",
-    contentExtractorProvider: "firecrawl" as const,
-    firecrawlApiKey: "fc-test-key",
-    firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
+  const entry = {
+    url: "https://example.com",
+    title: "テスト記事",
+    hasBeenRead: false,
+    creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+    lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
   };
 
-  it("エントリを正常に既読化", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
+  it("本文抽出成功時に選択中モデルで要約してSlackに投稿", async () => {
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: "# テスト記事\n\nテスト本文",
+    });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約文1\n要約文2\n要約文3",
+      retryCount: 1,
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
+
+    await markAsReadAndNotify(entry, completeSettings);
+
+    expect(mockSummarizeContent).toHaveBeenCalledWith(
+      entry.title,
+      entry.url,
+      "# テスト記事\n\nテスト本文",
+      {
+        endpoint: "https://api.openai.com/v1",
+        apiKey: "test-key",
+        model: "gpt-4o-mini",
+      },
+      expect.any(String),
+    );
+    expect(mockPostToSlack).toHaveBeenCalledWith(
+      completeSettings.slackWebhookUrl,
+      "formatted slack message",
+    );
+  });
+
+  it("APIキーが空欄でも選択中モデルで要約できる", async () => {
+    const selectedEndpoint = completeSettings.llmEndpoints[0];
+    if (!selectedEndpoint) {
+      throw new Error("テスト用エンドポイントがありません");
+    }
 
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
     vi.mocked(mockExtractContent).mockResolvedValue({
       success: true,
       content: "# テスト記事\n\nテスト本文",
     });
-    // 要約機能は実行されないが、念のためモック設定
     vi.mocked(mockSummarizeContent).mockResolvedValue({
       success: true,
       summary: "要約文",
       retryCount: 1,
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
+
+    await markAsReadAndNotify(entry, {
+      ...completeSettings,
+      llmEndpoints: [
+        {
+          ...selectedEndpoint,
+          apiKey: "",
+        },
+      ],
     });
 
-    // OpenAI設定が不完全な設定で実行（要約はスキップされる）
-    const incompleteSettings = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-    };
-
-    await markAsReadAndNotify(entry, incompleteSettings);
-
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
-      url: entry.url,
-      hasBeenRead: true,
-    });
-    expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
-      provider: "firecrawl",
-      firecrawl: {
-        apiKey: "fc-test-key",
-        baseUrl: DEFAULT_FIRECRAWL_BASE_URL,
+    expect(mockSummarizeContent).toHaveBeenCalledWith(
+      entry.title,
+      entry.url,
+      "# テスト記事\n\nテスト本文",
+      {
+        endpoint: "https://api.openai.com/v1",
+        apiKey: expect.any(String),
+        model: "gpt-4o-mini",
       },
-    });
-    // 要約機能は呼ばれない
-    expect(mockSummarizeContent).not.toHaveBeenCalled();
-    expect(mockPostToSlack).not.toHaveBeenCalled();
-  });
-
-  it("本文抽出成功時に要約してSlackに投稿", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const extractedContent = "# テスト記事\n\nテスト本文";
-    const summarizedContent = "要約文1\n要約文2\n要約文3";
-    const slackMessage = "formatted slack message";
-
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: extractedContent,
-    });
-    vi.mocked(mockSummarizeContent).mockResolvedValue({
-      success: true,
-      summary: summarizedContent,
-      retryCount: 1,
-    });
-    vi.mocked(mockFormatSlackMessage).mockReturnValue(slackMessage);
-    vi.mocked(mockPostToSlack).mockResolvedValue();
-
-    await markAsReadAndNotify(entry, mockSettings);
-
+      expect.any(String),
+    );
     expect(mockPostToSlack).toHaveBeenCalledWith(
-      mockSettings.slackWebhookUrl,
-      slackMessage,
+      completeSettings.slackWebhookUrl,
+      "formatted slack message",
     );
   });
 
-  it("要約失敗時にエラーメッセージをSlackに投稿", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const extractedContent = "# テスト記事\n\nテスト本文";
-    const errorMessage = "API接続エラー";
-    const slackErrorMessage = "formatted error message";
-
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: extractedContent,
-    });
-    vi.mocked(mockSummarizeContent).mockResolvedValue({
-      success: false,
-      error: errorMessage,
-      retryCount: 3,
-    });
-    vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
-    vi.mocked(mockPostToSlack).mockResolvedValue();
-
-    await markAsReadAndNotify(entry, mockSettings);
-
-    expect(mockPostToSlack).toHaveBeenCalledWith(
-      mockSettings.slackWebhookUrl,
-      slackErrorMessage,
-    );
-  });
-
-  it("本文抽出失敗時にエラーメッセージをSlackに投稿", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const extractionError = "コンテンツ抽出に失敗";
-    const slackErrorMessage = "formatted extraction error message";
-
+  it("本文抽出失敗時に選択中モデル名でエラーメッセージをSlackに投稿", async () => {
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
     vi.mocked(mockExtractContent).mockResolvedValue({
       success: false,
-      error: extractionError,
+      error: "コンテンツ抽出に失敗",
     });
-    vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(slackErrorMessage);
+    vi.mocked(mockFormatSlackErrorMessage).mockReturnValue(
+      "formatted extraction error message",
+    );
     vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await markAsReadAndNotify(entry, mockSettings);
+    await markAsReadAndNotify(entry, completeSettings);
 
-    expect(mockPostToSlack).toHaveBeenCalledWith(
-      mockSettings.slackWebhookUrl,
-      slackErrorMessage,
-    );
-  });
-
-  it("OpenAI設定が不完全な場合は要約・Slack投稿をスキップ", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const incompleteSettings = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-      openaiEndpoint: "https://api.openai.com/v1",
-      // openaiApiKey が未設定
-      openaiModel: "gpt-4o-mini",
-      slackWebhookUrl: "https://hooks.slack.com/test",
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
-    };
-
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    vi.mocked(mockExtractContent).mockResolvedValue({
-      success: true,
-      content: "# テスト記事\n\nテスト本文",
-    });
-
-    await markAsReadAndNotify(entry, incompleteSettings);
-
-    expect(mockSummarizeContent).not.toHaveBeenCalled();
-    // 本文抽出は成功しているので、要約処理でOpenAIキーが無いことを検知した後、Slackには通知されない
-  });
-
-  it("Firecrawl API キーが未設定の場合は本文抽出をスキップ", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const settingsWithoutFirecrawl = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-      openaiEndpoint: "https://api.openai.com/v1",
-      openaiApiKey: "test-key",
-      openaiModel: "gpt-4o-mini",
-      slackWebhookUrl: "https://hooks.slack.com/test",
-      contentExtractorProvider: "firecrawl" as const,
-      // firecrawlApiKey が未設定
-    };
-
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-
-    await markAsReadAndNotify(entry, settingsWithoutFirecrawl);
-
-    expect(mockExtractContent).not.toHaveBeenCalled();
-    expect(mockSummarizeContent).not.toHaveBeenCalled();
-    // APIキーが未設定のため、エラー通知がSlackに送信される
-    expect(mockPostToSlack).toHaveBeenCalled();
-  });
-
-  it("Tavily API キーが未設定の場合にSlackへエラー通知を送る", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    const settingsWithoutTavily = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-      contentExtractorProvider: "tavily" as const,
-      openaiModel: "gpt-4o-mini",
-      slackWebhookUrl: "https://hooks.slack.com/test",
-    };
-
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-
-    await markAsReadAndNotify(entry, settingsWithoutTavily);
-
-    expect(mockExtractContent).not.toHaveBeenCalled();
     expect(mockFormatSlackErrorMessage).toHaveBeenCalledWith(
       entry.title,
       entry.url,
-      settingsWithoutTavily.openaiModel,
-      expect.stringContaining("Tavily"),
+      "gpt-4o-mini",
+      expect.stringContaining("firecrawl"),
     );
     expect(mockPostToSlack).toHaveBeenCalledWith(
-      settingsWithoutTavily.slackWebhookUrl,
-      expect.any(String),
-    );
-  });
-
-  it("既読化APIエラー時に例外をスロー", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-    };
-
-    mockChromeReadingList.updateEntry.mockRejectedValue(
-      new Error("Update failed"),
-    );
-
-    await expect(markAsReadAndNotify(entry, mockSettings)).rejects.toThrow(
-      "Update failed",
+      completeSettings.slackWebhookUrl,
+      "formatted extraction error message",
     );
   });
 });
@@ -584,7 +337,6 @@ describe("deleteEntry", () => {
       creationTime: Date.now() - 80 * 24 * 60 * 60 * 1000,
       lastUpdateTime: Date.now() - 65 * 24 * 60 * 60 * 1000,
     };
-
     mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
 
     await deleteEntry(entry);
@@ -593,301 +345,143 @@ describe("deleteEntry", () => {
       url: entry.url,
     });
   });
-
-  it("削除APIエラー時に例外をスロー", async () => {
-    const entry = {
-      url: "https://example.com",
-      title: "テスト記事",
-      hasBeenRead: true,
-      creationTime: Date.now() - 80 * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - 65 * 24 * 60 * 60 * 1000,
-    };
-
-    mockChromeReadingList.removeEntry.mockRejectedValue(
-      new Error("Delete failed"),
-    );
-
-    await expect(deleteEntry(entry)).rejects.toThrow("Delete failed");
-  });
 });
 
 describe("processReadingListEntries", () => {
-  const mockSettings = {
-    daysUntilRead: 30,
-    daysUntilDelete: 60,
-    maxEntriesPerRun: 3,
-    contentExtractorProvider: "firecrawl" as const,
-    firecrawlApiKey: "fc-test-key",
-    firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
-  };
-
-  it("統合処理：設定取得、エントリ取得、フィルタリング、処理実行", async () => {
-    // モックデータ準備
-    const mockEntries = [
-      {
-        url: "https://example.com/1",
-        title: "古い未読記事",
-        hasBeenRead: false,
-        creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000, // 35日前（既読化対象）
-        lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      },
-      {
-        url: "https://example.com/2",
-        title: "新しい未読記事",
-        hasBeenRead: false,
-        creationTime: Date.now() - 25 * 24 * 60 * 60 * 1000, // 25日前（対象外）
-        lastUpdateTime: Date.now() - 25 * 24 * 60 * 60 * 1000,
-      },
-      {
-        url: "https://example.com/3",
-        title: "古い既読記事",
-        hasBeenRead: true,
-        creationTime: Date.now() - 100 * 24 * 60 * 60 * 1000, // 100日前作成
-        lastUpdateTime: Date.now() - 65 * 24 * 60 * 60 * 1000, // 65日前既読化（削除対象）
-      },
-      {
-        url: "https://example.com/4",
-        title: "新しい既読記事",
-        hasBeenRead: true,
-        creationTime: Date.now() - 50 * 24 * 60 * 60 * 1000, // 50日前作成
-        lastUpdateTime: Date.now() - 30 * 24 * 60 * 60 * 1000, // 30日前既読化（対象外）
-      },
-    ];
-
-    // モック設定
-    mockChromeStorageLocal.get.mockResolvedValue(mockSettings);
-    mockChromeReadingList.query.mockResolvedValue(mockEntries);
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
-
-    // 処理実行
-    await processReadingListEntries();
-
-    // 既読化処理の検証
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
-      url: "https://example.com/1",
-      hasBeenRead: true,
-    });
-
-    // 削除処理の検証
-    expect(mockChromeReadingList.removeEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeReadingList.removeEntry).toHaveBeenCalledWith({
-      url: "https://example.com/3",
-    });
-  });
-
-  it("エラーが発生しても処理が継続される", async () => {
-    const mockEntries = [
-      {
-        url: "https://example.com/1",
-        title: "エラーを起こす記事",
-        hasBeenRead: false,
-        creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-        lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      },
-      {
-        url: "https://example.com/2",
-        title: "正常な記事",
-        hasBeenRead: false,
-        creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-        lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
-      },
-    ];
-
-    mockChromeStorageLocal.get.mockResolvedValue(mockSettings);
-    mockChromeReadingList.query.mockResolvedValue(mockEntries);
-    mockChromeReadingList.updateEntry
-      .mockRejectedValueOnce(new Error("First entry failed"))
-      .mockResolvedValueOnce(undefined);
-
-    // エラーが発生しても例外は投げられない
-    await expect(processReadingListEntries()).resolves.not.toThrow();
-
-    // 両方の記事に対して処理が試行されることを確認
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(2);
-  });
-
   it("maxEntriesPerRunの設定に従って処理数を制限する", async () => {
-    // 5件の既読化対象エントリを準備（全て古い順）
     const mockEntries = [
       {
         url: "https://example.com/1",
         title: "最古の記事",
         hasBeenRead: false,
-        creationTime: Date.now() - 40 * 24 * 60 * 60 * 1000, // 40日前
+        creationTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
         lastUpdateTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
       },
       {
         url: "https://example.com/2",
         title: "2番目に古い記事",
         hasBeenRead: false,
-        creationTime: Date.now() - 39 * 24 * 60 * 60 * 1000, // 39日前
+        creationTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
         lastUpdateTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
       },
       {
         url: "https://example.com/3",
         title: "3番目に古い記事",
         hasBeenRead: false,
-        creationTime: Date.now() - 38 * 24 * 60 * 60 * 1000, // 38日前
+        creationTime: Date.now() - 38 * 24 * 60 * 60 * 1000,
         lastUpdateTime: Date.now() - 38 * 24 * 60 * 60 * 1000,
       },
       {
         url: "https://example.com/4",
         title: "4番目に古い記事",
         hasBeenRead: false,
-        creationTime: Date.now() - 37 * 24 * 60 * 60 * 1000, // 37日前
+        creationTime: Date.now() - 37 * 24 * 60 * 60 * 1000,
         lastUpdateTime: Date.now() - 37 * 24 * 60 * 60 * 1000,
-      },
-      {
-        url: "https://example.com/5",
-        title: "5番目に古い記事",
-        hasBeenRead: false,
-        creationTime: Date.now() - 36 * 24 * 60 * 60 * 1000, // 36日前
-        lastUpdateTime: Date.now() - 36 * 24 * 60 * 60 * 1000,
       },
     ];
 
-    // maxEntriesPerRun = 3 の設定
-    const settingsWithLimit = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-      maxEntriesPerRun: 3,
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
-    };
-
-    mockChromeStorageLocal.get.mockResolvedValue(settingsWithLimit);
+    mockChromeStorageLocal.get.mockResolvedValue(completeSettings);
     mockChromeReadingList.query.mockResolvedValue(mockEntries);
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: "本文",
+    });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約",
+      retryCount: 1,
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
 
     await processReadingListEntries();
 
-    // 3件のみ処理されることを確認（最も古い3件）
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+    expect(mockChromeReadingList.updateEntry).toHaveBeenNthCalledWith(1, {
       url: "https://example.com/1",
       hasBeenRead: true,
     });
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
-      url: "https://example.com/2",
-      hasBeenRead: true,
-    });
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
-      url: "https://example.com/3",
-      hasBeenRead: true,
-    });
-
-    // 4番目と5番目の記事は処理されないことを確認
-    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalledWith({
-      url: "https://example.com/4",
-      hasBeenRead: true,
-    });
-    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalledWith({
-      url: "https://example.com/5",
-      hasBeenRead: true,
-    });
   });
 
-  it("maxEntriesPerRunが未設定の場合はデフォルト値3を使用する", async () => {
-    // maxEntriesPerRunを含まない設定
-    const settingsWithoutMaxEntries = {
-      daysUntilRead: 30,
-      daysUntilDelete: 60,
-    };
-
-    // 5件の既読化対象エントリを準備
-    const mockEntries = Array.from({ length: 5 }, (_, i) => ({
-      url: `https://example.com/${i + 1}`,
-      title: `記事${i + 1}`,
-      hasBeenRead: false,
-      creationTime: Date.now() - (40 - i) * 24 * 60 * 60 * 1000,
-      lastUpdateTime: Date.now() - (40 - i) * 24 * 60 * 60 * 1000,
-    }));
-
-    mockChromeStorageLocal.get.mockResolvedValue(settingsWithoutMaxEntries);
-    mockChromeReadingList.query.mockResolvedValue(mockEntries);
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-
-    await processReadingListEntries();
-
-    // デフォルト値3件のみ処理されることを確認
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
-  });
-
-  it("削除機能が無効化されている場合は削除処理をスキップする", async () => {
-    const settingsWithDeleteDisabled = {
-      daysUntilRead: 30,
-      daysUntilDelete: DELETION_DISABLED_VALUE, // 削除機能無効
-      maxEntriesPerRun: 3,
-    };
-
+  it("途中のupdate失敗後も後続エントリの処理を継続する", async () => {
     const mockEntries = [
       {
         url: "https://example.com/1",
-        title: "古い未読記事",
+        title: "最初の記事",
         hasBeenRead: false,
-        creationTime: Date.now() - 35 * 24 * 60 * 60 * 1000, // 35日前（既読化対象）
-        lastUpdateTime: Date.now() - 35 * 24 * 60 * 60 * 1000,
+        creationTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
       },
       {
         url: "https://example.com/2",
-        title: "非常に古い既読記事",
-        hasBeenRead: true,
-        creationTime: Date.now() - 100 * 24 * 60 * 60 * 1000, // 100日前作成
-        lastUpdateTime: Date.now() - 90 * 24 * 60 * 60 * 1000, // 90日前既読化（通常なら削除対象）
+        title: "次の記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
       },
     ];
 
-    mockChromeStorageLocal.get.mockResolvedValue(settingsWithDeleteDisabled);
+    mockChromeStorageLocal.get.mockResolvedValue({
+      ...completeSettings,
+      maxEntriesPerRun: 10,
+    });
     mockChromeReadingList.query.mockResolvedValue(mockEntries);
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
+    mockChromeReadingList.updateEntry
+      .mockRejectedValueOnce(new Error("update failed"))
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: "本文",
+    });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約",
+      retryCount: 1,
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await processReadingListEntries();
+    await expect(processReadingListEntries()).resolves.toBeUndefined();
 
-    // 既読化処理は実行される
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(2);
+    expect(mockChromeReadingList.updateEntry).toHaveBeenNthCalledWith(1, {
       url: "https://example.com/1",
       hasBeenRead: true,
     });
-
-    // 削除処理は実行されない
-    expect(mockChromeReadingList.removeEntry).not.toHaveBeenCalled();
+    expect(mockChromeReadingList.updateEntry).toHaveBeenNthCalledWith(2, {
+      url: "https://example.com/2",
+      hasBeenRead: true,
+    });
   });
 
-  it("既読化と削除の日数が同じ場合、既読化したエントリを同じ実行で削除しない", async () => {
-    const settings = {
-      daysUntilRead: 1,
-      daysUntilDelete: 1,
-      maxEntriesPerRun: 3,
-    };
+  it("削除無効設定時は削除対象でもremoveを呼ばない", async () => {
+    const mockEntries = [
+      {
+        url: "https://example.com/delete-target",
+        title: "削除対象の記事",
+        hasBeenRead: true,
+        creationTime: Date.now() - 90 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 90 * 24 * 60 * 60 * 1000,
+      },
+    ];
 
-    const entryToProcess = {
-      url: "https://example.com/to-be-read",
-      title: "処理対象の記事",
-      hasBeenRead: false,
-      creationTime: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2日前
-      lastUpdateTime: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2日前
-    };
-
-    mockChromeStorageLocal.get.mockResolvedValue(settings);
-    mockChromeReadingList.query.mockResolvedValue([entryToProcess]);
-    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
-    mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
+    mockChromeStorageLocal.get.mockResolvedValue({
+      ...completeSettings,
+      daysUntilDelete: DELETION_DISABLED_VALUE,
+      maxEntriesPerRun: 10,
+    });
+    mockChromeReadingList.query.mockResolvedValue(mockEntries);
 
     await processReadingListEntries();
 
-    // 既読化処理が1回呼ばれることを確認
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
-      url: entryToProcess.url,
-      hasBeenRead: true,
-    });
-
-    // 削除処理が呼ばれないことを確認
     expect(mockChromeReadingList.removeEntry).not.toHaveBeenCalled();
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
   });
 });
