@@ -116,7 +116,7 @@ pnpm check:ai         # Complete validation pipeline (type-check + lint + test +
 - **Eliminate Error-Prone Fallback Logic**
   - Avoid silent fallbacks like `baseUrl || DEFAULT_BASE_URL` in deep call chains
   - Fail fast with explicit errors at configuration time rather than masking issues during runtime
-  - Example: Removed URL parsing fallback in `extractWithFirecrawl` - invalid URLs now throw immediately
+  - Example: Removed URL parsing fallback in a content extraction helper - invalid URLs now throw immediately
 
 ## File Patterns
 - Backend code: `src/backend/` (Service worker)

@@ -11,10 +11,11 @@ import {
   validateSettings,
 } from "../../common/chrome_storage";
 import {
+  CONTENT_EXTRACTOR_PROVIDER_DESCRIPTIONS,
+  CONTENT_EXTRACTOR_PROVIDER_LABELS,
   CONTENT_EXTRACTOR_PROVIDERS,
   type ContentExtractorProvider,
   DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-  DEFAULT_FIRECRAWL_BASE_URL,
 } from "../../common/constants";
 import {
   deriveLlmEndpointName,
@@ -86,14 +87,6 @@ function getModelOptionLabel(model: LlmModelConfig, index: number): string {
   return `Model ${index + 1}`;
 }
 
-function getProviderLabel(provider: ContentExtractorProvider): string {
-  if (provider === "tavily") {
-    return "Tavily";
-  }
-
-  return "Firecrawl";
-}
-
 function getSelectedProvider(settings: Settings): ContentExtractorProvider {
   return (
     settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER
@@ -105,9 +98,6 @@ function sanitizeEditableSettings(settings: Settings): Settings {
     ...settings,
     slackWebhookUrl: settings.slackWebhookUrl?.trim() || "",
     tavilyApiKey: settings.tavilyApiKey?.trim() || "",
-    firecrawlApiKey: settings.firecrawlApiKey?.trim() || "",
-    firecrawlBaseUrl:
-      settings.firecrawlBaseUrl?.trim() || DEFAULT_FIRECRAWL_BASE_URL,
   };
 }
 
@@ -158,8 +148,6 @@ export function formatSettingsForUi(settings: Settings): Settings {
     contentExtractorProvider:
       settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
     tavilyApiKey: settings.tavilyApiKey || "",
-    firecrawlApiKey: settings.firecrawlApiKey || "",
-    firecrawlBaseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
     systemPrompt: settings.systemPrompt || DEFAULT_SYSTEM_PROMPT,
   });
 }
@@ -430,6 +418,7 @@ export function App(): JSX.Element {
   }
 
   const selectedProvider = getSelectedProvider(settings);
+  const isTavilyOnly = selectedProvider === "tavily";
   const selectedEndpoint = getSelectedLlmEndpoint(settings);
   const modelsForSelectedEndpoint = getLlmModelsForEndpoint(
     settings,
@@ -870,7 +859,7 @@ export function App(): JSX.Element {
                 for="contentExtractorProvider"
                 class="block text-sm font-medium text-gray-700 mb-1"
               >
-                コンテンツ抽出プロバイダー
+                本文抽出モード
               </label>
               <select
                 id="contentExtractorProvider"
@@ -886,91 +875,43 @@ export function App(): JSX.Element {
               >
                 {CONTENT_EXTRACTOR_PROVIDERS.map((provider) => (
                   <option key={provider} value={provider}>
-                    {getProviderLabel(provider)}
+                    {CONTENT_EXTRACTOR_PROVIDER_LABELS[provider]}
                   </option>
                 ))}
               </select>
+              <p class="text-xs text-gray-500 mt-1">
+                {CONTENT_EXTRACTOR_PROVIDER_DESCRIPTIONS[selectedProvider]}
+              </p>
             </div>
 
-            {selectedProvider === "tavily" ? (
-              <div>
-                <label
-                  for="tavilyApiKey"
-                  class="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Tavily API キー
-                </label>
-                <input
-                  id="tavilyApiKey"
-                  type="password"
-                  placeholder="tvly-..."
-                  value={settings.tavilyApiKey || ""}
-                  onInput={(e) =>
-                    handleInputChange(
-                      "tavilyApiKey",
-                      (e.target as HTMLInputElement).value,
-                    )
-                  }
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p class="text-xs text-gray-500 mt-1">
-                  Tavily Extract APIで本文抽出を行います
-                </p>
-              </div>
-            ) : (
-              <>
-                <div>
-                  <label
-                    for="firecrawlApiKey"
-                    class="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Firecrawl API キー
-                  </label>
-                  <input
-                    id="firecrawlApiKey"
-                    type="password"
-                    placeholder="fc-..."
-                    value={settings.firecrawlApiKey || ""}
-                    onInput={(e) =>
-                      handleInputChange(
-                        "firecrawlApiKey",
-                        (e.target as HTMLInputElement).value,
-                      )
-                    }
-                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p class="text-xs text-gray-500 mt-1">
-                    Webページからのテキスト抽出に使用します
-                  </p>
-                </div>
-
-                <div>
-                  <label
-                    for="firecrawlBaseUrl"
-                    class="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Firecrawl Base URL
-                  </label>
-                  <input
-                    id="firecrawlBaseUrl"
-                    type="url"
-                    placeholder="https://api.firecrawl.dev"
-                    value={settings.firecrawlBaseUrl}
-                    onInput={(e) =>
-                      handleInputChange(
-                        "firecrawlBaseUrl",
-                        (e.target as HTMLInputElement).value,
-                      )
-                    }
-                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p class="text-xs text-gray-500 mt-1">
-                    セルフホスト環境では `http://localhost:3002`
-                    などに変更できます
-                  </p>
-                </div>
-              </>
-            )}
+            <div>
+              <label
+                for="tavilyApiKey"
+                class="block text-sm font-medium text-gray-700 mb-1"
+              >
+                {isTavilyOnly
+                  ? "Tavily API キー（必須）"
+                  : "Tavily API キー（任意）"}
+              </label>
+              <input
+                id="tavilyApiKey"
+                type="password"
+                placeholder="tvly-..."
+                value={settings.tavilyApiKey || ""}
+                onInput={(e) =>
+                  handleInputChange(
+                    "tavilyApiKey",
+                    (e.target as HTMLInputElement).value,
+                  )
+                }
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p class="text-xs text-gray-500 mt-1">
+                {isTavilyOnly
+                  ? "Tavily Extract API だけで本文抽出を行います"
+                  : "ローカル抽出失敗時のフォールバックに使用します"}
+              </p>
+            </div>
           </div>
         </section>
 

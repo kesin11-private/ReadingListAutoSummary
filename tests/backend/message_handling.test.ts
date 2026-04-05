@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtractContentResult } from "../../src/backend/content_extractor";
-import { DEFAULT_FIRECRAWL_BASE_URL } from "../../src/common/constants";
 import type { ManualExecuteResult } from "../../src/types/messages";
 
 // ExtractContent モックの設定
@@ -9,6 +8,12 @@ const mockExtractContent = vi.fn();
 // モジュールのモック
 vi.mock("../../src/backend/content_extractor", () => ({
   extractContent: mockExtractContent,
+  summarizeExtractionResult: vi.fn(
+    (result: ExtractContentResult) =>
+      `outcome=${result.outcome}; attempts=${result.attempts
+        .map((attempt) => `${attempt.source}:${attempt.kind}`)
+        .join(" -> ")}`,
+  ),
 }));
 
 vi.mock("../../src/backend/alarm", () => ({}));
@@ -34,6 +39,31 @@ type MessageListener = (
 
 let messageListener: MessageListener | null = null;
 
+function createExtractSuccessResult(): ExtractContentResult {
+  return {
+    success: true,
+    content: "テストコンテンツ",
+    title: "テスト記事",
+    source: "local",
+    outcome: "local-success",
+    attempts: [
+      {
+        source: "local",
+        success: true,
+        kind: "local-success",
+      },
+    ],
+  };
+}
+
+function getMessageListener(): MessageListener {
+  if (messageListener === null) {
+    throw new Error("Message listener is not registered");
+  }
+
+  return messageListener;
+}
+
 // グローバルchrome オブジェクトのモック
 beforeEach(() => {
   vi.stubGlobal("chrome", {
@@ -43,12 +73,10 @@ beforeEach(() => {
     runtime: mockChromeRuntime,
   });
 
-  // onMessage.addListener の呼び出しをキャプチャ
   mockChromeRuntime.onMessage.addListener.mockImplementation((listener) => {
     messageListener = listener;
   });
 
-  // モジュールを動的にインポートしてメッセージハンドラーを初期化
   vi.doMock("../../src/backend/background");
 });
 
@@ -61,7 +89,6 @@ afterEach(() => {
 
 describe("Message handling", () => {
   beforeEach(async () => {
-    // モジュールを再インポートしてメッセージハンドラーを初期化
     await import("../../src/backend/background");
   });
 
@@ -72,20 +99,11 @@ describe("Message handling", () => {
     expect(messageListener).toBeTruthy();
   });
 
-  it("EXTRACT_CONTENT メッセージでコンテンツ抽出を実行する", async () => {
+  it("EXTRACT_CONTENT メッセージでローカル抽出を実行する", async () => {
     vi.useFakeTimers();
-    // 設定のモック
-    mockChromeStorageLocal.get.mockResolvedValue({
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: "http://localhost:3002",
-    });
+    mockChromeStorageLocal.get.mockResolvedValue({});
 
-    // extractContent のモック
-    const mockResult = {
-      success: true,
-      content: "テストコンテンツ",
-    };
+    const mockResult = createExtractSuccessResult();
     mockExtractContent.mockResolvedValue(mockResult);
 
     const sendResponse = vi.fn();
@@ -94,139 +112,125 @@ describe("Message handling", () => {
       url: "https://example.com",
     };
 
-    // メッセージハンドラーが登録されていることを確認
-    expect(messageListener).toBeTruthy();
+    const listener = getMessageListener();
+    const result = listener(
+      request,
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
 
-    if (messageListener) {
-      // メッセージハンドラーを呼び出し
-      const result = messageListener(
-        request,
-        {} as chrome.runtime.MessageSender,
-        sendResponse,
-      );
+    expect(result).toBe(true);
+    await vi.runAllTimersAsync();
 
-      // 非同期処理を示すためtrueを返すことを確認
-      expect(result).toBe(true);
+    expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+      mode: "local-with-tavily-fallback",
+    });
+    expect(sendResponse).toHaveBeenCalledWith(mockResult);
 
-      // 非同期処理の完了を待つ
-      await vi.runAllTimersAsync();
-
-      // extractContent が正しい引数で呼ばれることを確認
-      expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
-        provider: "firecrawl",
-        firecrawl: {
-          apiKey: "fc-test-key",
-          baseUrl: "http://localhost:3002",
-        },
-      });
-
-      // sendResponse が正しい結果で呼ばれることを確認
-      expect(sendResponse).toHaveBeenCalledWith(mockResult);
-    }
     vi.useRealTimers();
   });
 
-  it("Firecrawl API キーが未設定の場合はエラーを返す", async () => {
+  it("Tavily API キーがあれば既定モード付きで抽出を実行する", async () => {
     vi.useFakeTimers();
-    // 設定のモック（Firecrawl選択だがAPI キーなし）
     mockChromeStorageLocal.get.mockResolvedValue({
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
+      tavilyApiKey: "tv-test-key",
     });
 
+    const mockResult = createExtractSuccessResult();
+    mockExtractContent.mockResolvedValue(mockResult);
+
     const sendResponse = vi.fn();
-    const request = {
-      type: "EXTRACT_CONTENT",
-      url: "https://example.com",
-    };
+    const listener = getMessageListener();
 
-    if (messageListener) {
-      messageListener(
-        request,
-        {} as chrome.runtime.MessageSender,
-        sendResponse,
-      );
+    listener(
+      { type: "EXTRACT_CONTENT", url: "https://example.com" },
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
 
-      // 非同期処理の完了を待つ
-      await vi.runAllTimersAsync();
+    await vi.runAllTimersAsync();
 
-      // extractContent は呼ばれない
-      expect(mockExtractContent).not.toHaveBeenCalled();
+    expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+      mode: "local-with-tavily-fallback",
+      tavily: {
+        apiKey: "tv-test-key",
+      },
+    });
+    expect(sendResponse).toHaveBeenCalledWith(mockResult);
 
-      // エラーレスポンスが返される
-      expect(sendResponse).toHaveBeenCalledWith({
-        success: false,
-        error:
-          "Firecrawl API キーが設定されていません。設定を保存してからお試しください。",
-      });
-    }
     vi.useRealTimers();
   });
 
-  it("Tavily API キーが未設定の場合はエラーを返す", async () => {
+  it("Tavily モードが選択されていればそのモードで抽出を実行する", async () => {
+    vi.useFakeTimers();
+    mockChromeStorageLocal.get.mockResolvedValue({
+      contentExtractorProvider: "tavily",
+      tavilyApiKey: "tv-test-key",
+    });
+
+    const mockResult = createExtractSuccessResult();
+    mockExtractContent.mockResolvedValue(mockResult);
+
+    const sendResponse = vi.fn();
+    const listener = getMessageListener();
+
+    listener(
+      { type: "EXTRACT_CONTENT", url: "https://example.com" },
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
+
+    await vi.runAllTimersAsync();
+
+    expect(mockExtractContent).toHaveBeenCalledWith("https://example.com", {
+      mode: "tavily",
+      tavily: {
+        apiKey: "tv-test-key",
+      },
+    });
+    expect(sendResponse).toHaveBeenCalledWith(mockResult);
+
+    vi.useRealTimers();
+  });
+
+  it("extractContent が失敗結果を返した場合はそのまま返す", async () => {
     vi.useFakeTimers();
     mockChromeStorageLocal.get.mockResolvedValue({});
 
-    const sendResponse = vi.fn();
-    const request = {
-      type: "EXTRACT_CONTENT",
-      url: "https://example.com",
-    };
-
-    if (messageListener) {
-      messageListener(
-        request,
-        {} as chrome.runtime.MessageSender,
-        sendResponse,
-      );
-
-      await vi.runAllTimersAsync();
-
-      expect(mockExtractContent).not.toHaveBeenCalled();
-      expect(sendResponse).toHaveBeenCalledWith({
-        success: false,
-        error:
-          "Tavily API キーが設定されていません。設定を保存してからお試しください。",
-      });
-    }
-    vi.useRealTimers();
-  });
-
-  it("extractContent でエラーが発生した場合はエラーを返す", async () => {
-    vi.useFakeTimers();
-    // 設定のモック
-    mockChromeStorageLocal.get.mockResolvedValue({
-      contentExtractorProvider: "firecrawl" as const,
-      firecrawlApiKey: "fc-test-key",
-      firecrawlBaseUrl: DEFAULT_FIRECRAWL_BASE_URL,
-    });
-
-    // extractContent のエラーモック
-    const mockError = {
+    const mockError: ExtractContentResult = {
       success: false,
       error: "抽出に失敗しました",
+      outcome: "local-failed-no-fallback",
+      attempts: [
+        {
+          source: "local",
+          success: false,
+          kind: "fetch-blocked",
+          error: "ローカルHTML取得に失敗しました: Failed to fetch",
+        },
+        {
+          source: "tavily",
+          success: false,
+          kind: "fallback-unavailable",
+          error: "Tavily API キーが未設定のためフォールバックできません。",
+        },
+      ],
     };
     mockExtractContent.mockResolvedValue(mockError);
 
     const sendResponse = vi.fn();
-    const request = {
-      type: "EXTRACT_CONTENT",
-      url: "https://example.com",
-    };
+    const listener = getMessageListener();
 
-    if (messageListener) {
-      messageListener(
-        request,
-        {} as chrome.runtime.MessageSender,
-        sendResponse,
-      );
+    listener(
+      { type: "EXTRACT_CONTENT", url: "https://example.com" },
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
 
-      // 非同期処理の完了を待つ
-      await vi.runAllTimersAsync();
+    await vi.runAllTimersAsync();
 
-      // エラーレスポンスが返される
-      expect(sendResponse).toHaveBeenCalledWith(mockError);
-    }
+    expect(sendResponse).toHaveBeenCalledWith(mockError);
+
     vi.useRealTimers();
   });
 
@@ -237,19 +241,15 @@ describe("Message handling", () => {
       url: "https://example.com",
     };
 
-    if (messageListener) {
-      const result = messageListener(
-        request,
-        {} as chrome.runtime.MessageSender,
-        sendResponse,
-      );
+    const listener = getMessageListener();
+    const result = listener(
+      request,
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
 
-      // falseを返す（非同期処理なし）
-      expect(result).toBe(false);
-
-      // sendResponse は呼ばれない
-      expect(sendResponse).not.toHaveBeenCalled();
-    }
+    expect(result).toBe(false);
+    expect(sendResponse).not.toHaveBeenCalled();
   });
 
   it("MANUAL_EXECUTE メッセージで成功レスポンスを返す", async () => {
@@ -257,17 +257,17 @@ describe("Message handling", () => {
     const sendResponse = vi.fn();
     const request = { type: "MANUAL_EXECUTE" };
 
-    expect(messageListener).toBeTruthy();
-    if (messageListener) {
-      const result = messageListener(
-        request,
-        {} as chrome.runtime.MessageSender,
-        sendResponse,
-      );
-      expect(result).toBe(true);
-      await vi.runAllTimersAsync();
-      expect(sendResponse).toHaveBeenCalledWith({ success: true });
-    }
+    const listener = getMessageListener();
+    const result = listener(
+      request,
+      {} as chrome.runtime.MessageSender,
+      sendResponse,
+    );
+
+    expect(result).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(sendResponse).toHaveBeenCalledWith({ success: true });
+
     vi.useRealTimers();
   });
 });

@@ -5,11 +5,6 @@ import {
   type Settings,
 } from "../common/chrome_storage";
 import {
-  type ContentExtractorProvider,
-  DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
-  DEFAULT_FIRECRAWL_BASE_URL,
-} from "../common/constants";
-import {
   getSelectedLlmEndpoint,
   getSelectedLlmModel,
   type ResolvedLlmConfig,
@@ -24,6 +19,7 @@ import {
   type ExtractContentConfig,
   type ExtractContentResult,
   extractContent,
+  summarizeExtractionResult,
 } from "./content_extractor";
 import { postToSlack } from "./post";
 import {
@@ -39,6 +35,22 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function createExtractFailureResult(error: unknown): ExtractContentResult {
+  return {
+    success: false,
+    error: getErrorMessage(error),
+    outcome: "local-failed-no-fallback",
+    attempts: [],
+  };
+}
+
+function createMessageFailureResult(error: unknown): ManualExecuteResult {
+  return {
+    success: false,
+    error: getErrorMessage(error),
+  };
+}
+
 type MessageResponse =
   | ExtractContentResult
   | SummarizeResult
@@ -50,10 +62,7 @@ function sendAsyncMessageResponse(
   sendResponse: (response: MessageResponse) => void,
 ): true {
   responsePromise.then(sendResponse).catch((error: unknown) => {
-    sendResponse({
-      success: false,
-      error: getErrorMessage(error),
-    });
+    sendResponse(createMessageFailureResult(error));
   });
 
   return true;
@@ -169,26 +178,9 @@ async function handleExtractContentMessage(
 ): Promise<ExtractContentResult> {
   try {
     const settings = await getSettings();
-
-    const provider = resolveContentExtractorProvider(settings);
-    const missingKeyError = validateContentExtractorCredentials(
-      provider,
-      settings,
-    );
-
-    if (missingKeyError) {
-      return {
-        success: false,
-        error: missingKeyError,
-      };
-    }
-
     return await extractContent(url, buildExtractorConfig(settings));
   } catch (error) {
-    return {
-      success: false,
-      error: getErrorMessage(error),
-    };
+    return createExtractFailureResult(error);
   }
 }
 
@@ -336,32 +328,25 @@ async function processContentExtraction(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
 ): Promise<void> {
-  const provider = resolveContentExtractorProvider(settings);
-  const missingKeyError = validateContentExtractorCredentials(
-    provider,
-    settings,
-  );
-
-  if (missingKeyError) {
-    console.error(
-      `${provider} API キーが未設定のため本文抽出をスキップ: ${entry.title}`,
-    );
-    await notifyExtractionError(entry, settings, provider, missingKeyError);
-    return;
-  }
-
   const extractResult = await extractContent(
     entry.url,
     buildExtractorConfig(settings),
   );
+  const extractionSummary = summarizeExtractionResult(extractResult);
 
   if (!extractResult.success) {
-    console.error(`本文抽出失敗: ${entry.title} - ${extractResult.error}`);
-    await notifyExtractionError(entry, settings, provider, extractResult.error);
+    console.error(
+      `本文抽出失敗: ${entry.title} (${extractionSummary}) - ${extractResult.error}`,
+    );
+    await notifyExtractionError(
+      entry,
+      settings,
+      `${extractResult.error} (${extractionSummary})`,
+    );
     return;
   }
 
-  console.log(`本文抽出成功: ${entry.title}`);
+  console.log(`本文抽出成功: ${entry.title} (${extractionSummary})`);
   await processSummarization(entry, extractResult.content, settings);
 }
 
@@ -373,10 +358,9 @@ async function processSummarization(
   content: string,
   settings: Settings,
 ): Promise<void> {
-  const { slackWebhookUrl } = settings;
   const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
-  if (!llmConfig || !slackWebhookUrl) {
+  if (!llmConfig || !settings.slackWebhookUrl) {
     if (!llmConfig) {
       logLlmResolutionFailure(
         `既読化エントリの要約をスキップ: ${entry.title}`,
@@ -398,24 +382,22 @@ async function processSummarization(
     getSystemPrompt(settings),
   );
 
-  let slackMessage: string;
-  if (summarizeResult.success && summarizeResult.summary) {
-    slackMessage = formatSlackMessage(
-      entry.title,
-      entry.url,
-      llmConfig.modelName,
-      summarizeResult.summary,
-    );
-  } else {
-    slackMessage = formatSlackErrorMessage(
-      entry.title,
-      entry.url,
-      llmConfig.modelName,
-      summarizeResult.error || "不明なエラー",
-    );
-  }
+  const slackMessage =
+    summarizeResult.success && summarizeResult.summary
+      ? formatSlackMessage(
+          entry.title,
+          entry.url,
+          llmConfig.modelName,
+          summarizeResult.summary,
+        )
+      : formatSlackErrorMessage(
+          entry.title,
+          entry.url,
+          llmConfig.modelName,
+          summarizeResult.error || "不明なエラー",
+        );
 
-  await postToSlack(slackWebhookUrl, slackMessage);
+  await postToSlack(settings.slackWebhookUrl, slackMessage);
 }
 
 /**
@@ -424,7 +406,6 @@ async function processSummarization(
 async function notifyExtractionError(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
-  provider: ContentExtractorProvider,
   error?: string,
 ): Promise<void> {
   const selectedModel = getSelectedLlmModel(settings);
@@ -437,56 +418,26 @@ async function notifyExtractionError(
     entry.title,
     entry.url,
     selectedModel.modelName,
-    `本文抽出失敗 (${provider}): ${error}`,
+    `本文抽出失敗: ${error}`,
   );
   await postToSlack(settings.slackWebhookUrl, errorMessage);
 }
 
-function resolveContentExtractorProvider(
-  settings: Settings,
-): ContentExtractorProvider {
-  return (
-    settings.contentExtractorProvider || DEFAULT_CONTENT_EXTRACTOR_PROVIDER
-  );
-}
-
 function buildExtractorConfig(settings: Settings): ExtractContentConfig {
-  const provider = resolveContentExtractorProvider(settings);
-
-  if (provider === "firecrawl") {
-    return {
-      provider: "firecrawl",
-      firecrawl: {
-        apiKey: settings.firecrawlApiKey || "",
-        baseUrl: settings.firecrawlBaseUrl || DEFAULT_FIRECRAWL_BASE_URL,
-      },
-    };
+  const config: ExtractContentConfig = {};
+  if (settings.contentExtractorProvider) {
+    config.mode = settings.contentExtractorProvider;
   }
 
-  return {
-    provider: "tavily",
-    tavily: {
-      apiKey: settings.tavilyApiKey || "",
-    },
+  const tavilyApiKey = settings.tavilyApiKey?.trim();
+  if (!tavilyApiKey) {
+    return config;
+  }
+
+  config.tavily = {
+    apiKey: tavilyApiKey,
   };
-}
-
-function validateContentExtractorCredentials(
-  provider: ContentExtractorProvider,
-  settings: Settings,
-): string | null {
-  switch (provider) {
-    case "tavily":
-      if (!settings.tavilyApiKey?.trim()) {
-        return "Tavily API キーが設定されていません。設定を保存してからお試しください。";
-      }
-      return null;
-    case "firecrawl":
-      if (!settings.firecrawlApiKey?.trim()) {
-        return "Firecrawl API キーが設定されていません。設定を保存してからお試しください。";
-      }
-      return null;
-  }
+  return config;
 }
 
 /**

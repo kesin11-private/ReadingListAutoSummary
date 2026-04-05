@@ -1,7 +1,12 @@
+import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 import type { ExtractContentResult } from "../../backend/content_extractor";
 import type { SummarizeResult } from "../../backend/summarizer";
-import type { ContentExtractorProvider } from "../../common/constants";
+import {
+  CONTENT_EXTRACTOR_PROVIDER_DESCRIPTIONS,
+  CONTENT_EXTRACTOR_PROVIDER_LABELS,
+  type ContentExtractorProvider,
+} from "../../common/constants";
 import type {
   ExtractContentMessage,
   SlackTestMessage,
@@ -18,10 +23,24 @@ function isExtractContentResult(obj: unknown): obj is ExtractContentResult {
   }
 
   const result = obj as Record<string, unknown>;
+  if (typeof result.success !== "boolean" || !Array.isArray(result.attempts)) {
+    return false;
+  }
+
+  if (result.success) {
+    return (
+      typeof result.content === "string" &&
+      (result.outcome === "local-success" ||
+        result.outcome === "tavily-success" ||
+        result.outcome === "tavily-fallback-success")
+    );
+  }
+
   return (
-    typeof result.success === "boolean" &&
-    (result.success === false || typeof result.content === "string") &&
-    (result.success === true || typeof result.error === "string")
+    typeof result.error === "string" &&
+    (result.outcome === "local-failed-no-fallback" ||
+      result.outcome === "tavily-only-failed" ||
+      result.outcome === "tavily-fallback-failed")
   );
 }
 
@@ -56,11 +75,74 @@ function isSlackTestResult(obj: unknown): obj is SlackTestResult {
   );
 }
 
+function normalizeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createExtractFailureResult(error: string): ExtractContentResult {
+  return {
+    success: false,
+    error,
+    outcome: "local-failed-no-fallback",
+    attempts: [],
+  };
+}
+
+function getExtractResultMethodLabel(result: ExtractContentResult): string {
+  if (
+    result.outcome === "local-success" ||
+    result.outcome === "local-failed-no-fallback"
+  ) {
+    return "ローカル";
+  }
+
+  if (
+    result.outcome === "tavily-success" ||
+    result.outcome === "tavily-only-failed"
+  ) {
+    return "Tavily";
+  }
+
+  if (result.outcome === "tavily-fallback-success") {
+    return "Tavilyフォールバック";
+  }
+
+  return "ローカル + Tavilyフォールバック";
+}
+
+function getExtractResultMessage(result: ExtractContentResult): string {
+  const methodLabel = getExtractResultMethodLabel(result);
+  if (result.success) {
+    return `✓ 本文抽出成功: ${methodLabel} (文字数: ${result.content.length})`;
+  }
+
+  return `✗ 本文抽出失敗: ${methodLabel} - ${result.error}`;
+}
+
+function getSlackResultDisplay(slackResult: SlackTestResult): {
+  className: string;
+  message: string;
+} {
+  if (slackResult.success) {
+    return {
+      className: "bg-green-50 border border-green-200 text-green-800",
+      message: "✓ Slackへの投稿が完了しました！",
+    };
+  }
+
+  return {
+    className: "bg-red-50 border border-red-200 text-red-800",
+    message: `✗ 投稿エラー: ${slackResult.error}`,
+  };
+}
+
 interface ContentExtractorTestProps {
   provider: ContentExtractorProvider;
 }
 
-export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
+export function ContentExtractorTest({
+  provider,
+}: ContentExtractorTestProps): JSX.Element {
   const [url, setUrl] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<ExtractContentResult | null>(null);
@@ -68,15 +150,18 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
     useState<SummarizeResult | null>(null);
   const [isSlackPosting, setIsSlackPosting] = useState(false);
   const [slackResult, setSlackResult] = useState<SlackTestResult | null>(null);
+  const slackResultDisplay = slackResult
+    ? getSlackResultDisplay(slackResult)
+    : null;
 
   const handleSlackTest = async () => {
     if (!summarizeResult?.success || !summarizeResult.summary) return;
+    const trimmedUrl = url.trim();
 
     setIsSlackPosting(true);
     setSlackResult(null);
 
     try {
-      // Slack設定の確認
       const settings = await chrome.storage.local.get(["slackWebhookUrl"]);
       if (!settings.slackWebhookUrl) {
         setSlackResult({
@@ -87,16 +172,15 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
         return;
       }
 
-      // 要約結果をSlackメッセージ形式に変換
       const title =
         (result?.success === true ? result.title : undefined) ||
-        new URL(url.trim()).hostname;
+        new URL(trimmedUrl).hostname;
       const modelName = summarizeResult.modelName || "Unknown Model";
 
       const message: SlackTestMessage = {
         type: "SLACK_TEST",
         title,
-        url: url.trim(),
+        url: trimmedUrl,
         modelName,
         summary: summarizeResult.summary,
       };
@@ -114,7 +198,7 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
     } catch (error) {
       setSlackResult({
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: normalizeErrorMessage(error),
       });
     } finally {
       setIsSlackPosting(false);
@@ -122,11 +206,9 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
   };
 
   const handleExtractAndSummarize = async () => {
-    if (!url.trim()) {
-      setResult({
-        success: false,
-        error: "URLを入力してください",
-      });
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+      setResult(createExtractFailureResult("URLを入力してください"));
       return;
     }
 
@@ -135,36 +217,34 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
     setSummarizeResult(null);
     setSlackResult(null);
 
+    let extractResult: ExtractContentResult | null = null;
+
     try {
-      // Step 1: Extract content
       const extractMessage: ExtractContentMessage = {
         type: "EXTRACT_CONTENT",
-        url: url.trim(),
+        url: trimmedUrl,
       };
 
       const extractResponse = await chrome.runtime.sendMessage(extractMessage);
 
       if (!isExtractContentResult(extractResponse)) {
-        setResult({
-          success: false,
-          error: "不正なレスポンス形式です",
-        });
+        setResult(createExtractFailureResult("不正なレスポンス形式です"));
         return;
       }
 
+      extractResult = extractResponse;
       setResult(extractResponse);
 
       if (!extractResponse.success || !extractResponse.content) {
-        return; // Extraction failed, stop here
+        return;
       }
 
-      // Step 2: Summarize content
-      const title = new URL(url.trim()).hostname;
+      const title = new URL(trimmedUrl).hostname;
 
       const summarizeMessage: SummarizeTestMessage = {
         type: "SUMMARIZE_TEST",
         title,
-        url: url.trim(),
+        url: trimmedUrl,
         content: extractResponse.content,
       };
 
@@ -180,17 +260,11 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
         });
       }
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = normalizeErrorMessage(error);
 
-      // If no extraction result yet, set extraction error
-      if (!result) {
-        setResult({
-          success: false,
-          error: errorMessage,
-        });
+      if (!extractResult) {
+        setResult(createExtractFailureResult(errorMessage));
       } else {
-        // If extraction was successful but summarization failed
         setSummarizeResult({
           success: false,
           error: errorMessage,
@@ -206,11 +280,15 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-md font-semibold">コンテンツ抽出テスト</h3>
         <span class="text-xs font-medium text-gray-600 border border-gray-300 rounded px-2 py-1">
-          現在のプロバイダー: {provider === "tavily" ? "Tavily" : "Firecrawl"}
+          現在のモード: {CONTENT_EXTRACTOR_PROVIDER_LABELS[provider]}
         </span>
       </div>
 
       <div class="space-y-4">
+        <p class="text-sm text-gray-600">
+          {CONTENT_EXTRACTOR_PROVIDER_DESCRIPTIONS[provider]}
+        </p>
+
         <div>
           <label
             for="testUrl"
@@ -246,7 +324,7 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
             {result.success ? (
               <div class="space-y-2">
                 <div class="text-sm text-green-600 font-medium">
-                  ✓ 抽出成功 (文字数: {result.content?.length || 0})
+                  {getExtractResultMessage(result)}
                 </div>
                 <div class="bg-white border rounded-md p-3 max-h-64 overflow-y-auto">
                   <pre class="text-xs text-gray-700 whitespace-pre-wrap">
@@ -256,7 +334,7 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
               </div>
             ) : (
               <div class="text-sm text-red-600 font-medium">
-                ✗ 抽出失敗: {result.error}
+                {getExtractResultMessage(result)}
               </div>
             )}
           </div>
@@ -304,15 +382,9 @@ export function ContentExtractorTest({ provider }: ContentExtractorTestProps) {
               Slack投稿結果:
             </h4>
             <div
-              class={`p-3 rounded-md text-sm ${
-                slackResult.success
-                  ? "bg-green-50 border border-green-200 text-green-800"
-                  : "bg-red-50 border border-red-200 text-red-800"
-              }`}
+              class={`p-3 rounded-md text-sm ${slackResultDisplay?.className}`}
             >
-              {slackResult.success
-                ? "✓ Slackへの投稿が完了しました！"
-                : `✗ 投稿エラー: ${slackResult.error}`}
+              {slackResultDisplay?.message}
             </div>
           </div>
         )}
