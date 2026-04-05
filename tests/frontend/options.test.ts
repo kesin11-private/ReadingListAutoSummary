@@ -76,6 +76,31 @@ describe("options helpers", () => {
     expect(result.llmEndpoints[0]?.name).toBe("Primary OpenAI");
   });
 
+  it("空白だけのエンドポイント名はURL由来ラベルへフォールバックする", () => {
+    const result = formatSettingsForUi({
+      ...createSettings(),
+      llmEndpoints: [
+        {
+          id: "endpoint-1",
+          name: "   ",
+          endpoint: "https://api.openai.com/v1",
+          apiKey: "sk-openai",
+        },
+      ],
+      llmModels: [
+        {
+          id: "model-1",
+          endpointId: "endpoint-1",
+          modelName: "gpt-4o-mini",
+        },
+      ],
+      selectedLlmEndpointId: "endpoint-1",
+      selectedLlmModelId: "model-1",
+    });
+
+    expect(result.llmEndpoints[0]?.name).toBe("api.openai.com");
+  });
+
   it("モデル追加と更新が選択中エンドポイント配下に反映される", () => {
     const withNewModel = addLlmModel(createSettings());
     const updated = updateSelectedLlmModel(withNewModel, "gpt-5-mini");

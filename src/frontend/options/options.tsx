@@ -143,10 +143,14 @@ export function formatSettingsForUi(settings: Settings): Settings {
   return normalizeLlmSettings({
     ...DEFAULT_SETTINGS,
     ...settings,
-    llmEndpoints: settings.llmEndpoints.map((endpoint, index) => ({
-      ...endpoint,
-      name: endpoint.name || formatEndpointLabel(endpoint, index),
-    })),
+    llmEndpoints: settings.llmEndpoints.map((endpoint, index) => {
+      const trimmedName = endpoint.name.trim();
+
+      return {
+        ...endpoint,
+        name: trimmedName || formatEndpointLabel(endpoint, index),
+      };
+    }),
     llmModels: settings.llmModels,
     selectedLlmEndpointId: settings.selectedLlmEndpointId,
     selectedLlmModelId: settings.selectedLlmModelId,

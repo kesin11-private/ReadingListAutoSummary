@@ -26,13 +26,25 @@ async function advanceRetryDelays(): Promise<void> {
   await vi.runOnlyPendingTimersAsync();
 }
 
-describe("summarizer", () => {
-  const config: SummarizerConfig = {
-    endpoint: "https://api.openai.com/v1",
-    apiKey: "test-key",
-    model: "gpt-4",
-  };
+const config: SummarizerConfig = {
+  endpoint: "https://api.openai.com/v1",
+  apiKey: "test-key",
+  model: "gpt-4",
+};
 
+function summarizeTestContent(
+  systemPrompt = DEFAULT_SYSTEM_PROMPT,
+): ReturnType<typeof summarizeContent> {
+  return summarizeContent(
+    "テストタイトル",
+    "https://example.com",
+    "テストコンテンツ",
+    config,
+    systemPrompt,
+  );
+}
+
+describe("summarizer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.clearAllTimers();
@@ -56,13 +68,7 @@ describe("summarizer", () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const result = await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const result = await summarizeTestContent();
 
       expect(result).toStrictEqual({
         success: true,
@@ -84,13 +90,7 @@ describe("summarizer", () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
       await advanceRetryDelays();
 
@@ -108,13 +108,7 @@ describe("summarizer", () => {
       const apiError = new Error("API Error");
       mockCreate.mockRejectedValue(apiError);
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
       await advanceRetryDelays();
 
@@ -134,13 +128,7 @@ describe("summarizer", () => {
         unexpected: true,
       });
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
       await advanceRetryDelays();
 
@@ -173,13 +161,7 @@ describe("summarizer", () => {
         .mockRejectedValueOnce(apiError)
         .mockResolvedValueOnce(mockResponse);
 
-      const resultPromise = summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      const resultPromise = summarizeTestContent();
 
       // 1回目のリトライまでタイマーを進める
       vi.advanceTimersByTime(1000);
@@ -208,13 +190,7 @@ describe("summarizer", () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        DEFAULT_SYSTEM_PROMPT,
-      );
+      await summarizeTestContent();
 
       expect(mockCreate).toHaveBeenCalledWith({
         model: "gpt-4",
@@ -247,13 +223,7 @@ describe("summarizer", () => {
       mockCreate.mockResolvedValue(mockResponse);
       const customPrompt = "カスタムプロンプトです";
 
-      await summarizeContent(
-        "テストタイトル",
-        "https://example.com",
-        "テストコンテンツ",
-        config,
-        customPrompt,
-      );
+      await summarizeTestContent(customPrompt);
 
       expect(mockCreate).toHaveBeenCalledWith({
         model: "gpt-4",

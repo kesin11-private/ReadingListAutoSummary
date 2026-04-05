@@ -145,6 +145,15 @@ describe("getReadingListEntries", () => {
     expect(entries).toEqual(mockEntries);
     expect(mockChromeReadingList.query).toHaveBeenCalledWith({});
   });
+
+  it("queryがrejectした場合は空配列を返し例外を外に漏らさない", async () => {
+    mockChromeReadingList.query.mockRejectedValue(
+      new Error("reading list query failed"),
+    );
+
+    await expect(getReadingListEntries()).resolves.toEqual([]);
+    expect(mockChromeReadingList.query).toHaveBeenCalledWith({});
+  });
 });
 
 describe("shouldMarkAsRead", () => {
@@ -396,5 +405,83 @@ describe("processReadingListEntries", () => {
       url: "https://example.com/1",
       hasBeenRead: true,
     });
+  });
+
+  it("途中のupdate失敗後も後続エントリの処理を継続する", async () => {
+    const mockEntries = [
+      {
+        url: "https://example.com/1",
+        title: "最初の記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 40 * 24 * 60 * 60 * 1000,
+      },
+      {
+        url: "https://example.com/2",
+        title: "次の記事",
+        hasBeenRead: false,
+        creationTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 39 * 24 * 60 * 60 * 1000,
+      },
+    ];
+
+    mockChromeStorageLocal.get.mockResolvedValue({
+      ...completeSettings,
+      maxEntriesPerRun: 10,
+    });
+    mockChromeReadingList.query.mockResolvedValue(mockEntries);
+    mockChromeReadingList.updateEntry
+      .mockRejectedValueOnce(new Error("update failed"))
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue({
+      success: true,
+      content: "本文",
+    });
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約",
+      retryCount: 1,
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
+
+    await expect(processReadingListEntries()).resolves.toBeUndefined();
+
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(2);
+    expect(mockChromeReadingList.updateEntry).toHaveBeenNthCalledWith(1, {
+      url: "https://example.com/1",
+      hasBeenRead: true,
+    });
+    expect(mockChromeReadingList.updateEntry).toHaveBeenNthCalledWith(2, {
+      url: "https://example.com/2",
+      hasBeenRead: true,
+    });
+  });
+
+  it("削除無効設定時は削除対象でもremoveを呼ばない", async () => {
+    const mockEntries = [
+      {
+        url: "https://example.com/delete-target",
+        title: "削除対象の記事",
+        hasBeenRead: true,
+        creationTime: Date.now() - 90 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 90 * 24 * 60 * 60 * 1000,
+      },
+    ];
+
+    mockChromeStorageLocal.get.mockResolvedValue({
+      ...completeSettings,
+      daysUntilDelete: DELETION_DISABLED_VALUE,
+      maxEntriesPerRun: 10,
+    });
+    mockChromeReadingList.query.mockResolvedValue(mockEntries);
+
+    await processReadingListEntries();
+
+    expect(mockChromeReadingList.removeEntry).not.toHaveBeenCalled();
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
   });
 });

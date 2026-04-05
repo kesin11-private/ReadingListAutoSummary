@@ -269,15 +269,34 @@ type SettingsToSave = Record<
   string,
   string | number | LlmEndpointConfig[] | LlmModelConfig[] | null
 >;
+const REMOVABLE_OPTIONAL_KEYS = [
+  "slackWebhookUrl",
+  "tavilyApiKey",
+  "firecrawlApiKey",
+  "systemPrompt",
+] as const;
 
 function addOptionalSetting(
   settingsToSave: SettingsToSave,
   key: keyof Settings,
   value: string | ContentExtractorProvider | undefined,
 ): void {
-  if (value) {
+  if (value !== undefined) {
     settingsToSave[key] = value;
   }
+}
+
+function getOptionalKeysToRemove(settings: Settings): string[] {
+  const keysToRemove = [...LEGACY_LLM_STORAGE_KEYS] as string[];
+
+  for (const key of REMOVABLE_OPTIONAL_KEYS) {
+    const value = settings[key];
+    if (typeof value === "string" && value === "") {
+      keysToRemove.push(key);
+    }
+  }
+
+  return keysToRemove;
 }
 
 function createSettingsToSave(settings: Settings): SettingsToSave {
@@ -392,7 +411,9 @@ export async function saveSettings(settings: ValidatedSettings): Promise<void> {
   try {
     const sanitizedSettings = sanitizeLlmSettings(settings);
     const settingsToSave = createSettingsToSave(sanitizedSettings);
-    await chrome.storage.local.remove([...LEGACY_LLM_STORAGE_KEYS]);
+    await chrome.storage.local.remove(
+      getOptionalKeysToRemove(sanitizedSettings),
+    );
     await chrome.storage.local.set(settingsToSave);
   } catch (error) {
     console.error("設定保存エラー:", error);
@@ -400,7 +421,14 @@ export async function saveSettings(settings: ValidatedSettings): Promise<void> {
   }
 }
 
-function validateLlmSettings(settings: Settings, errors: string[]): void {
+function validateLlmSettings(
+  settings: Settings,
+  errors: string[],
+  selectedState: {
+    selectedLlmEndpointId: string | null;
+    selectedLlmModelId: string | null;
+  },
+): void {
   const endpointIds = new Set(
     settings.llmEndpoints.map((endpoint) => endpoint.id),
   );
@@ -432,23 +460,23 @@ function validateLlmSettings(settings: Settings, errors: string[]): void {
   }
 
   if (
-    settings.selectedLlmEndpointId &&
-    !endpointIds.has(settings.selectedLlmEndpointId)
+    selectedState.selectedLlmEndpointId &&
+    !endpointIds.has(selectedState.selectedLlmEndpointId)
   ) {
     errors.push("選択中のLLMエンドポイントが存在しません");
   }
 
   const selectedModel = settings.llmModels.find(
-    (model) => model.id === settings.selectedLlmModelId,
+    (model) => model.id === selectedState.selectedLlmModelId,
   );
-  if (settings.selectedLlmModelId && !selectedModel) {
+  if (selectedState.selectedLlmModelId && !selectedModel) {
     errors.push("選択中のLLMモデルが存在しません");
   }
 
   if (
-    settings.selectedLlmEndpointId &&
+    selectedState.selectedLlmEndpointId &&
     selectedModel &&
-    selectedModel.endpointId !== settings.selectedLlmEndpointId
+    selectedModel.endpointId !== selectedState.selectedLlmEndpointId
   ) {
     errors.push("選択中のLLMモデルが選択中のエンドポイントに紐付いていません");
   }
@@ -462,15 +490,18 @@ export function validateSettings(settings: Partial<Settings>): {
   validatedSettings?: ValidatedSettings;
 } {
   const errors: string[] = [];
+  const selectedState = {
+    selectedLlmEndpointId:
+      settings.selectedLlmEndpointId ?? DEFAULT_SETTINGS.selectedLlmEndpointId,
+    selectedLlmModelId:
+      settings.selectedLlmModelId ?? DEFAULT_SETTINGS.selectedLlmModelId,
+  };
   const normalizedSettings = sanitizeLlmSettings({
     ...DEFAULT_SETTINGS,
     ...settings,
     llmEndpoints: settings.llmEndpoints ?? DEFAULT_SETTINGS.llmEndpoints,
     llmModels: settings.llmModels ?? DEFAULT_SETTINGS.llmModels,
-    selectedLlmEndpointId:
-      settings.selectedLlmEndpointId ?? DEFAULT_SETTINGS.selectedLlmEndpointId,
-    selectedLlmModelId:
-      settings.selectedLlmModelId ?? DEFAULT_SETTINGS.selectedLlmModelId,
+    ...selectedState,
   });
   const maxEntriesPerRun =
     normalizedSettings.maxEntriesPerRun ?? DEFAULT_MAX_ENTRIES_PER_RUN;
@@ -560,7 +591,7 @@ export function validateSettings(settings: Partial<Settings>): {
     }
   }
 
-  validateLlmSettings(normalizedSettings, errors);
+  validateLlmSettings(normalizedSettings, errors, selectedState);
 
   if (errors.length > 0) {
     return { errors };

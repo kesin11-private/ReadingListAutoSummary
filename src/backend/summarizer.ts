@@ -61,11 +61,18 @@ function createInvalidResponseErrorMessage(config: SummarizerConfig): string {
   ].join(" ");
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function extractSummaryFromResponse(
   response: unknown,
   config: SummarizerConfig,
 ): string {
-  if (!isChatCompletionResponseLike(response)) {
+  if (
+    !isChatCompletionResponseLike(response) ||
+    !Array.isArray(response.choices)
+  ) {
     console.error("要約APIレスポンス形式エラー:", {
       endpoint: config.endpoint,
       model: config.model,
@@ -94,16 +101,16 @@ export async function summarizeContent(
   systemPrompt: string,
 ): Promise<SummarizeResult> {
   const maxRetries = 3;
+  const client = new OpenAI({
+    baseURL: config.endpoint,
+    apiKey: config.apiKey,
+  });
+  const userPrompt = `以下のWebページを要約してください：\n\nタイトル: ${title}\nURL: ${url}\n\n内容:\n${content}`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     console.log(`要約開始 (試行 ${attempt}/${maxRetries}): ${title}`);
 
     try {
-      const client = new OpenAI({
-        baseURL: config.endpoint,
-        apiKey: config.apiKey,
-      });
-
       const response = await client.chat.completions.create({
         model: config.model,
         messages: [
@@ -113,7 +120,7 @@ export async function summarizeContent(
           },
           {
             role: "user",
-            content: `以下のWebページを要約してください：\n\nタイトル: ${title}\nURL: ${url}\n\n内容:\n${content}`,
+            content: userPrompt,
           },
         ],
         stream: false,
@@ -131,8 +138,7 @@ export async function summarizeContent(
         modelName: config.model,
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       console.error(
         `要約失敗 (試行 ${attempt}/${maxRetries}): ${errorMessage}`,
       );

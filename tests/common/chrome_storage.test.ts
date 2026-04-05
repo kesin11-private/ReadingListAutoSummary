@@ -175,6 +175,38 @@ describe("chrome_storage", () => {
         systemPrompt: "カスタムプロンプト",
       });
     });
+
+    it("空文字のオプション設定を保存した場合は旧値をクリアする", async () => {
+      const settings: ValidatedSettings = {
+        ...DEFAULT_SETTINGS,
+        ...validLlmSettings,
+        slackWebhookUrl: "",
+        tavilyApiKey: "",
+        firecrawlApiKey: "",
+        systemPrompt: "",
+        validated: true,
+      };
+
+      await saveSettings(settings);
+
+      expect(mockChromeStorage.local.remove).toHaveBeenCalledWith([
+        "openaiEndpoint",
+        "openaiApiKey",
+        "openaiModel",
+        "slackWebhookUrl",
+        "tavilyApiKey",
+        "firecrawlApiKey",
+        "systemPrompt",
+      ]);
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slackWebhookUrl: "",
+          tavilyApiKey: "",
+          firecrawlApiKey: "",
+          systemPrompt: "",
+        }),
+      );
+    });
   });
 
   describe("validateSettings", () => {
@@ -236,6 +268,125 @@ describe("chrome_storage", () => {
 
       expect(errors).toContain(
         "Slack Webhook URLはSlackの正しいURLで入力してください",
+      );
+    });
+
+    it("既読化日数の境界値を検証する", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          daysUntilRead: 0,
+        }).errors,
+      ).toContain("既読化までの日数は1-365の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          daysUntilRead: 366,
+        }).errors,
+      ).toContain("既読化までの日数は1-365の整数で入力してください");
+    });
+
+    it("削除日数の境界値を検証する", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          daysUntilDelete: 0,
+        }).errors,
+      ).toContain("削除までの日数は-1または1-365の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          daysUntilDelete: 366,
+        }).errors,
+      ).toContain("削除までの日数は-1または1-365の整数で入力してください");
+    });
+
+    it("最大エントリ数と実行間隔の境界値を検証する", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          maxEntriesPerRun: 0,
+        }).errors,
+      ).toContain(
+        "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
+      );
+      expect(
+        validateSettings({
+          ...baseSettings,
+          alarmIntervalMinutes: 0,
+        }).errors,
+      ).toContain("実行間隔（分）は1以上の整数で入力してください");
+    });
+
+    it("コンテンツ抽出プロバイダーごとの必須キーを検証する", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          contentExtractorProvider: "tavily",
+          tavilyApiKey: "",
+        }).errors,
+      ).toContain("Tavily APIキーを入力してください");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          contentExtractorProvider: "firecrawl",
+          firecrawlApiKey: "",
+        }).errors,
+      ).toContain("Firecrawl APIキーを入力してください");
+    });
+
+    it("Firecrawl Base URLの形式を検証する", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          firecrawlBaseUrl: "not-a-url",
+        }).errors,
+      ).toContain("Firecrawl Base URLは有効なURLで入力してください");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          firecrawlBaseUrl: "ftp://example.com",
+        }).errors,
+      ).toContain("Firecrawl Base URLはhttpまたはhttpsで指定してください");
+    });
+
+    it("選択中のLLM endpoint/modelの不整合を検証する", () => {
+      expect(
+        validateSettings({
+          ...baseSettings,
+          selectedLlmEndpointId: "missing-endpoint",
+        }).errors,
+      ).toContain("選択中のLLMエンドポイントが存在しません");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          selectedLlmModelId: "missing-model",
+        }).errors,
+      ).toContain("選択中のLLMモデルが存在しません");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          llmEndpoints: [
+            ...baseSettings.llmEndpoints,
+            {
+              id: "endpoint-2",
+              name: "Azure OpenAI",
+              endpoint: "https://azure.example.com/openai",
+              apiKey: "azure-key",
+            },
+          ],
+          llmModels: [
+            ...baseSettings.llmModels,
+            {
+              id: "model-2",
+              endpointId: "endpoint-2",
+              modelName: "gpt-4.1",
+            },
+          ],
+          selectedLlmModelId: "model-2",
+        }).errors,
+      ).toContain(
+        "選択中のLLMモデルが選択中のエンドポイントに紐付いていません",
       );
     });
   });
