@@ -26,9 +26,9 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
   - オプション画面で下記項目を設定・保存（`chrome.storage.local`利用）
     - 既読化までの日数（デフォルト：30日）
     - 削除までの日数（デフォルト：60日）
-    - OpenAI互換APIエンドポイント
-    - APIキー
-    - モデル名
+    - LLMエンドポイント一覧（表示名 / OpenAI互換APIエンドポイント / APIキー）
+    - エンドポイントごとのモデル一覧
+    - 使用するエンドポイントとモデルの選択状態
     - Slack Webhook URL
   - コンテンツ抽出プロバイダー（Tavily / Firecrawl）
   - Tavily API キー
@@ -46,7 +46,7 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
     - Chromeリーディングリストからエントリ取得
     - 未読エントリの登録日時をチェックし、規定日数経過で既読化
     - 既読化時に選択中のコンテンツ抽出プロバイダーから本文を取得
-    - 本文・タイトル・URLをOpenAI互換APIで要約（3文・600文字以内）
+    - 本文・タイトル・URLを選択中のOpenAI互換APIエンドポイントとモデルで要約（3文・600文字以内）
     - Slack Webhookへ指定フォーマットで投稿
     - 既読エントリの既読化日時をチェックし、規定日数経過で自動削除
 
@@ -80,6 +80,14 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
 - Slack Webhook
 - chrome.storage.local（設定保存）
 
+## LLM設定管理
+
+- 複数の OpenAI 互換エンドポイントを保存できます。
+- 各エンドポイントごとに複数のモデル名を保存できます。
+- 要約時は「選択中のエンドポイント + 選択中のモデル」を利用します。
+- 旧単一設定（`openaiEndpoint` / `openaiApiKey` / `openaiModel`）が保存されている場合、読み込み時に新しい構造へ自動移行されます。
+- エンドポイントを削除すると、そのエンドポイントに紐づくモデルもまとめて削除されます。
+
 ## コンテンツ抽出プロバイダー
 
 - デフォルトは Tavily Extract API（Base URL: `https://api.tavily.com`）です。無料枠でも毎月1,000件まで抽出可能です。
@@ -93,5 +101,5 @@ ReadingListAutoSummaryは、Chromeの標準リーディングリスト機能（`
 ## 注意事項
 
 - Slack連携はWebhook URLのみ対応
-- LLMモデルはユーザー自身がAPI設定画面でモデル名を指定
+- LLMモデルはユーザー自身がAPI設定画面でエンドポイントごとに管理・選択
 - 本拡張はChromeリーディングリストAPI（`chrome.readingList`）が利用可能な環境が必要です

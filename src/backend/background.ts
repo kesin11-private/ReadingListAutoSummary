@@ -9,6 +9,10 @@ import {
   DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
   DEFAULT_FIRECRAWL_BASE_URL,
 } from "../common/constants";
+import {
+  getSelectedLlmModel,
+  resolveSelectedLlmConfig,
+} from "../common/llm_settings";
 import type {
   FrontendMessage,
   ManualExecuteResult,
@@ -28,6 +32,10 @@ import {
   summarizeContent,
 } from "./summarizer";
 import "./alarm"; // アラーム処理の初期化
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
  * メッセージハンドラーの初期化
@@ -53,7 +61,7 @@ function initializeMessageHandlers(): void {
             .catch((error) => {
               sendResponse({
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
               });
             });
           return true; // Will respond asynchronously
@@ -69,7 +77,7 @@ function initializeMessageHandlers(): void {
             .catch((error: unknown) => {
               sendResponse({
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
               });
             });
           return true; // Will respond asynchronously
@@ -86,7 +94,7 @@ function initializeMessageHandlers(): void {
             .catch((error: unknown) => {
               sendResponse({
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
               });
             });
           return true; // Will respond asynchronously
@@ -98,7 +106,7 @@ function initializeMessageHandlers(): void {
             .catch((error: unknown) => {
               const result: ManualExecuteResult = {
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
               };
               sendResponse(result);
             });
@@ -137,7 +145,7 @@ async function handleExtractContentMessage(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }
@@ -152,23 +160,19 @@ async function handleSummarizeTestMessage(
 ): Promise<SummarizeResult> {
   try {
     const settings = await getSettings();
+    const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
-    if (
-      !settings.openaiEndpoint ||
-      !settings.openaiApiKey ||
-      !settings.openaiModel
-    ) {
+    if (!llmConfig) {
       return {
         success: false,
-        error:
-          "OpenAI設定（エンドポイント、APIキー、モデル名）が不完全です。設定を保存してからお試しください。",
+        error: error || "LLM設定の解決に失敗しました。",
       };
     }
 
     const summarizerConfig: SummarizerConfig = {
-      endpoint: settings.openaiEndpoint,
-      apiKey: settings.openaiApiKey,
-      model: settings.openaiModel,
+      endpoint: llmConfig.endpoint,
+      apiKey: llmConfig.apiKey,
+      model: llmConfig.modelName,
     };
 
     return await summarizeContent(
@@ -181,7 +185,7 @@ async function handleSummarizeTestMessage(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }
@@ -213,7 +217,7 @@ async function handleSlackTestMessage(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }
@@ -328,25 +332,20 @@ async function processSummarization(
   content: string,
   settings: Settings,
 ): Promise<void> {
-  const {
-    openaiEndpoint,
-    openaiApiKey,
-    openaiModel,
-    slackWebhookUrl,
-    systemPrompt,
-  } = settings;
+  const { slackWebhookUrl, systemPrompt } = settings;
+  const { config: llmConfig } = resolveSelectedLlmConfig(settings);
 
-  if (!openaiEndpoint || !openaiApiKey || !openaiModel || !slackWebhookUrl) {
+  if (!llmConfig || !slackWebhookUrl) {
     console.warn(
-      "OpenAI設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
+      "LLM設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
     );
     return;
   }
 
   const summarizerConfig: SummarizerConfig = {
-    endpoint: openaiEndpoint,
-    apiKey: openaiApiKey,
-    model: openaiModel,
+    endpoint: llmConfig.endpoint,
+    apiKey: llmConfig.apiKey,
+    model: llmConfig.modelName,
   };
 
   const summarizeResult = await summarizeContent(
@@ -357,20 +356,22 @@ async function processSummarization(
     systemPrompt || DEFAULT_SYSTEM_PROMPT,
   );
 
-  const slackMessage =
-    summarizeResult.success && summarizeResult.summary
-      ? formatSlackMessage(
-          entry.title,
-          entry.url,
-          openaiModel,
-          summarizeResult.summary,
-        )
-      : formatSlackErrorMessage(
-          entry.title,
-          entry.url,
-          openaiModel,
-          summarizeResult.error || "不明なエラー",
-        );
+  let slackMessage: string;
+  if (summarizeResult.success && summarizeResult.summary) {
+    slackMessage = formatSlackMessage(
+      entry.title,
+      entry.url,
+      llmConfig.modelName,
+      summarizeResult.summary,
+    );
+  } else {
+    slackMessage = formatSlackErrorMessage(
+      entry.title,
+      entry.url,
+      llmConfig.modelName,
+      summarizeResult.error || "不明なエラー",
+    );
+  }
 
   await postToSlack(slackWebhookUrl, slackMessage);
 }
@@ -384,14 +385,16 @@ async function notifyExtractionError(
   provider: ContentExtractorProvider,
   error?: string,
 ): Promise<void> {
-  if (!settings.slackWebhookUrl || !settings.openaiModel) {
+  const selectedModel = getSelectedLlmModel(settings);
+
+  if (!settings.slackWebhookUrl || !selectedModel?.modelName.trim()) {
     return;
   }
 
   const errorMessage = formatSlackErrorMessage(
     entry.title,
     entry.url,
-    settings.openaiModel,
+    selectedModel.modelName,
     `本文抽出失敗 (${provider}): ${error}`,
   );
   await postToSlack(settings.slackWebhookUrl, errorMessage);
