@@ -426,7 +426,7 @@ describe("processReadingListEntries", () => {
     vi.useRealTimers();
   });
 
-  it("手動実行では日次上限を無視して既読化する", async () => {
+  it("手動実行でも日次上限に達していれば既読化しない", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
     setupMockStorage({
@@ -470,9 +470,9 @@ describe("processReadingListEntries", () => {
     );
     vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await processReadingListEntries({ ignoreDailySummaryQuota: true });
+    await processReadingListEntries();
 
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
     expect(mockChromeStorageLocal.set).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
