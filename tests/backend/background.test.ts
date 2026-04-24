@@ -90,6 +90,7 @@ const {
 
 const mockChromeStorageLocal = {
   get: vi.fn(),
+  set: vi.fn(),
 };
 
 const mockChromeReadingList = {
@@ -101,7 +102,7 @@ const mockChromeReadingList = {
 const completeSettings: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: 60,
-  maxEntriesPerRun: 2,
+  maxEntriesPerDay: 2,
   alarmIntervalMinutes: 720,
   llmEndpoints: [
     {
@@ -125,6 +126,30 @@ const completeSettings: Settings = {
   tavilyApiKey: "tv-test-key",
   systemPrompt: "カスタムプロンプト",
 };
+
+function mockStorageState(overrides: Record<string, unknown> = {}): void {
+  const storedValues = {
+    ...completeSettings,
+    ...overrides,
+  };
+
+  mockChromeStorageLocal.set.mockImplementation(async (values) => {
+    Object.assign(storedValues, values);
+  });
+  mockChromeStorageLocal.get.mockImplementation(async (keys?: string[]) => {
+    if (!Array.isArray(keys)) {
+      return storedValues;
+    }
+
+    return Object.fromEntries(
+      keys.flatMap((key) =>
+        storedValues[key as keyof typeof storedValues] === undefined
+          ? []
+          : [[key, storedValues[key as keyof typeof storedValues]]],
+      ),
+    );
+  });
+}
 
 beforeEach(() => {
   vi.stubGlobal("chrome", {
@@ -300,8 +325,13 @@ describe("deleteEntry", () => {
 });
 
 describe("processReadingListEntries", () => {
-  it("既読化対象を古い順かつ最大件数まで処理する", async () => {
-    mockChromeStorageLocal.get.mockResolvedValue(completeSettings);
+  it("自動実行では既読化対象を古い順かつ日次上限の残枠まで処理する", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
+    mockStorageState({
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 0,
+    });
     mockChromeReadingList.query.mockResolvedValue([
       {
         url: "https://example.com/newer",
@@ -350,5 +380,100 @@ describe("processReadingListEntries", () => {
       url: "https://example.com/middle",
       hasBeenRead: true,
     });
+    expect(mockChromeStorageLocal.set).toHaveBeenNthCalledWith(1, {
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 1,
+    });
+    expect(mockChromeStorageLocal.set).toHaveBeenNthCalledWith(2, {
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 2,
+    });
+    vi.useRealTimers();
+  });
+
+  it("自動実行では今日の残枠がなければ既読化しないが削除は続ける", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
+    mockStorageState({
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 2,
+    });
+    mockChromeReadingList.query.mockResolvedValue([
+      {
+        url: "https://example.com/unread",
+        title: "unread",
+        hasBeenRead: false,
+        creationTime: Date.now() - 60 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now(),
+      },
+      {
+        url: "https://example.com/read",
+        title: "read",
+        hasBeenRead: true,
+        creationTime: Date.now() - 90 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now() - 90 * 24 * 60 * 60 * 1000,
+      },
+    ]);
+    mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
+
+    await processReadingListEntries();
+
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
+    expect(mockChromeReadingList.removeEntry).toHaveBeenCalledWith({
+      url: "https://example.com/read",
+    });
+    expect(mockChromeStorageLocal.set).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("手動実行では日次上限を無視して既読化する", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
+    mockStorageState({
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 2,
+    });
+    mockChromeReadingList.query.mockResolvedValue([
+      {
+        url: "https://example.com/oldest",
+        title: "oldest",
+        hasBeenRead: false,
+        creationTime: Date.now() - 60 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now(),
+      },
+      {
+        url: "https://example.com/middle",
+        title: "middle",
+        hasBeenRead: false,
+        creationTime: Date.now() - 45 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now(),
+      },
+      {
+        url: "https://example.com/newer",
+        title: "newer",
+        hasBeenRead: false,
+        creationTime: Date.now() - 31 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now(),
+      },
+    ]);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約",
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
+
+    await processReadingListEntries({ ignoreDailySummaryQuota: true });
+
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(3);
+    expect(mockChromeStorageLocal.set).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

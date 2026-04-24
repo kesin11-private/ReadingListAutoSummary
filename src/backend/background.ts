@@ -1,7 +1,9 @@
 import {
   DEFAULT_SYSTEM_PROMPT,
   DELETION_DISABLED_VALUE,
+  getDailySummaryQuotaState,
   getSettings,
+  incrementDailySummaryQuotaCount,
   type Settings,
 } from "../common/chrome_storage";
 import {
@@ -259,7 +261,7 @@ async function handleSlackTestMessage(
  * 手動実行メッセージハンドラー
  */
 async function handleManualExecuteMessage(): Promise<ManualExecuteResult> {
-  await processReadingListEntries();
+  await processReadingListEntries({ ignoreDailySummaryQuota: true });
   return { success: true };
 }
 
@@ -486,18 +488,33 @@ export async function deleteEntry(
   }
 }
 
+interface ProcessReadingListEntriesOptions {
+  ignoreDailySummaryQuota?: boolean;
+}
+
 /**
  * リーディングリストエントリの一括処理
  */
-export async function processReadingListEntries(): Promise<void> {
+export async function processReadingListEntries(
+  options: ProcessReadingListEntriesOptions = {},
+): Promise<void> {
   console.log("リーディングリスト自動処理開始");
 
   try {
     // 設定を取得
     const settings = await getSettings();
-    const maxEntriesPerRun = settings.maxEntriesPerRun ?? 3; // フォールバック
+    const maxEntriesPerDay = settings.maxEntriesPerDay ?? 3;
+    const ignoreDailySummaryQuota = options.ignoreDailySummaryQuota ?? false;
+    const dailySummaryQuotaState = ignoreDailySummaryQuota
+      ? null
+      : await getDailySummaryQuotaState();
+    const remainingDailySummaryQuota = ignoreDailySummaryQuota
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, maxEntriesPerDay - dailySummaryQuotaState.count);
     console.log(
-      `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1回の実行で既読にする最大エントリ数${maxEntriesPerRun}件`,
+      ignoreDailySummaryQuota
+        ? `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、手動実行のため日次要約上限${maxEntriesPerDay}件は適用しません`
+        : `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1日の要約上限${maxEntriesPerDay}件、今日の処理済み${dailySummaryQuotaState?.count ?? 0}件`,
     );
 
     // エントリ一覧を取得
@@ -508,10 +525,10 @@ export async function processReadingListEntries(): Promise<void> {
       shouldMarkAsRead(entry, settings.daysUntilRead),
     );
 
-    // 最大エントリ数で制限（古い順にソート後、先頭から指定数を取得）
+    // 古い順にソートし、自動実行時は日次要約上限の残枠で制限
     const entriesToMarkAsRead = allEntriesToMarkAsRead
       .sort((a, b) => a.creationTime - b.creationTime) // 古い順でソート
-      .slice(0, maxEntriesPerRun);
+      .slice(0, remainingDailySummaryQuota);
 
     // 削除対象のエントリをフィルタリング
     const entriesToDelete = entries.filter((entry) =>
@@ -519,13 +536,18 @@ export async function processReadingListEntries(): Promise<void> {
     );
 
     console.log(
-      `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち）、削除${entriesToDelete.length}件`,
+      ignoreDailySummaryQuota
+        ? `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件）、削除${entriesToDelete.length}件`
+        : `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち、今日の残枠${remainingDailySummaryQuota}件）、削除${entriesToDelete.length}件`,
     );
 
     // 既読化処理
     for (const entry of entriesToMarkAsRead) {
       try {
         await markAsReadAndNotify(entry, settings);
+        if (!ignoreDailySummaryQuota) {
+          await incrementDailySummaryQuotaCount();
+        }
       } catch (error) {
         console.error(`既読化処理失敗: ${entry.title}`, error);
       }

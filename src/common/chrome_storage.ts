@@ -13,7 +13,7 @@ import {
 export interface Settings {
   daysUntilRead: number;
   daysUntilDelete: number;
-  maxEntriesPerRun?: number;
+  maxEntriesPerDay?: number;
   alarmIntervalMinutes?: number;
   llmEndpoints: LlmEndpointConfig[];
   llmModels: LlmModelConfig[];
@@ -35,6 +35,7 @@ type StoredLlmSettings = Pick<
 interface StoredSettings extends Record<string, unknown> {
   daysUntilRead?: unknown;
   daysUntilDelete?: unknown;
+  maxEntriesPerDay?: unknown;
   maxEntriesPerRun?: unknown;
   alarmIntervalMinutes?: unknown;
   llmEndpoints?: unknown;
@@ -53,6 +54,7 @@ interface StoredSettings extends Record<string, unknown> {
 const SETTINGS_STORAGE_KEYS = [
   "daysUntilRead",
   "daysUntilDelete",
+  "maxEntriesPerDay",
   "maxEntriesPerRun",
   "alarmIntervalMinutes",
   "llmEndpoints",
@@ -73,6 +75,7 @@ const LEGACY_LLM_STORAGE_KEYS = [
   "openaiApiKey",
   "openaiModel",
 ] as const;
+const LEGACY_SETTINGS_STORAGE_KEYS = ["maxEntriesPerRun"] as const;
 
 const LEGACY_ENDPOINT_ID = "legacy-endpoint";
 const LEGACY_MODEL_ID = "legacy-model";
@@ -107,7 +110,7 @@ export const DELETION_DISABLED_VALUE = -1;
 export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: DELETION_DISABLED_VALUE,
-  maxEntriesPerRun: 3,
+  maxEntriesPerDay: 3,
   alarmIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
   llmEndpoints: [],
   llmModels: [],
@@ -116,9 +119,23 @@ export const DEFAULT_SETTINGS: Settings = {
   contentExtractorProvider: DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
 };
 
-const DEFAULT_MAX_ENTRIES_PER_RUN = DEFAULT_SETTINGS.maxEntriesPerRun ?? 3;
+const DEFAULT_MAX_ENTRIES_PER_DAY = DEFAULT_SETTINGS.maxEntriesPerDay ?? 3;
 const DEFAULT_ALARM_INTERVAL_MINUTES =
   DEFAULT_SETTINGS.alarmIntervalMinutes ?? DEFAULT_INTERVAL_MINUTES;
+const DAILY_SUMMARY_QUOTA_DATE_KEY = "dailySummaryQuotaDate";
+const DAILY_SUMMARY_QUOTA_COUNT_KEY = "dailySummaryQuotaCount";
+
+export interface DailySummaryQuotaState {
+  date: string;
+  count: number;
+}
+
+function formatLocalDateKey(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function getStringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
@@ -278,7 +295,10 @@ function addOptionalSetting(
 }
 
 function getOptionalKeysToRemove(settings: Settings): string[] {
-  const keysToRemove: string[] = [...LEGACY_LLM_STORAGE_KEYS];
+  const keysToRemove: string[] = [
+    ...LEGACY_LLM_STORAGE_KEYS,
+    ...LEGACY_SETTINGS_STORAGE_KEYS,
+  ];
 
   for (const key of REMOVABLE_OPTIONAL_KEYS) {
     const value = settings[key];
@@ -294,7 +314,7 @@ function createSettingsToSave(settings: Settings): SettingsToSave {
   const settingsToSave: SettingsToSave = {
     daysUntilRead: settings.daysUntilRead,
     daysUntilDelete: settings.daysUntilDelete,
-    maxEntriesPerRun: settings.maxEntriesPerRun ?? DEFAULT_MAX_ENTRIES_PER_RUN,
+    maxEntriesPerDay: settings.maxEntriesPerDay ?? DEFAULT_MAX_ENTRIES_PER_DAY,
     alarmIntervalMinutes:
       settings.alarmIntervalMinutes ?? DEFAULT_ALARM_INTERVAL_MINUTES,
     llmEndpoints: settings.llmEndpoints,
@@ -354,8 +374,10 @@ export async function getSettings(): Promise<Settings> {
       daysUntilDelete:
         getNumberValue(result.daysUntilDelete) ??
         DEFAULT_SETTINGS.daysUntilDelete,
-      maxEntriesPerRun:
-        getNumberValue(result.maxEntriesPerRun) ?? DEFAULT_MAX_ENTRIES_PER_RUN,
+      maxEntriesPerDay:
+        getNumberValue(result.maxEntriesPerDay) ??
+        getNumberValue(result.maxEntriesPerRun) ??
+        DEFAULT_MAX_ENTRIES_PER_DAY,
       alarmIntervalMinutes:
         getNumberValue(result.alarmIntervalMinutes) ??
         DEFAULT_ALARM_INTERVAL_MINUTES,
@@ -388,6 +410,56 @@ export async function saveSettings(settings: ValidatedSettings): Promise<void> {
     console.error("設定保存エラー:", error);
     throw error;
   }
+}
+
+export async function getDailySummaryQuotaState(
+  today = formatLocalDateKey(),
+): Promise<DailySummaryQuotaState> {
+  try {
+    const result = (await chrome.storage.local.get([
+      DAILY_SUMMARY_QUOTA_DATE_KEY,
+      DAILY_SUMMARY_QUOTA_COUNT_KEY,
+    ])) as Record<string, unknown>;
+    const date = getStringValue(result[DAILY_SUMMARY_QUOTA_DATE_KEY]);
+    const count = getNumberValue(result[DAILY_SUMMARY_QUOTA_COUNT_KEY]);
+
+    if (date === today && Number.isInteger(count) && count >= 0) {
+      return { date, count };
+    }
+
+    return {
+      date: today,
+      count: 0,
+    };
+  } catch (error) {
+    console.error("日次要約クォータ状態の取得エラー:", error);
+    return {
+      date: today,
+      count: 0,
+    };
+  }
+}
+
+export async function setDailySummaryQuotaState(
+  state: DailySummaryQuotaState,
+): Promise<void> {
+  await chrome.storage.local.set({
+    [DAILY_SUMMARY_QUOTA_DATE_KEY]: state.date,
+    [DAILY_SUMMARY_QUOTA_COUNT_KEY]: state.count,
+  });
+}
+
+export async function incrementDailySummaryQuotaCount(
+  today = formatLocalDateKey(),
+): Promise<DailySummaryQuotaState> {
+  const currentState = await getDailySummaryQuotaState(today);
+  const nextState = {
+    date: today,
+    count: currentState.count + 1,
+  };
+
+  await setDailySummaryQuotaState(nextState);
+  return nextState;
 }
 
 function validateLlmSettings(
@@ -472,8 +544,8 @@ export function validateSettings(settings: Partial<Settings>): {
     llmModels: settings.llmModels ?? DEFAULT_SETTINGS.llmModels,
     ...selectedState,
   });
-  const maxEntriesPerRun =
-    normalizedSettings.maxEntriesPerRun ?? DEFAULT_MAX_ENTRIES_PER_RUN;
+  const maxEntriesPerDay =
+    normalizedSettings.maxEntriesPerDay ?? DEFAULT_MAX_ENTRIES_PER_DAY;
   const alarmIntervalMinutes =
     normalizedSettings.alarmIntervalMinutes ?? DEFAULT_ALARM_INTERVAL_MINUTES;
 
@@ -495,12 +567,12 @@ export function validateSettings(settings: Partial<Settings>): {
   }
 
   if (
-    !Number.isInteger(maxEntriesPerRun) ||
-    maxEntriesPerRun < 1 ||
-    maxEntriesPerRun > 100
+    !Number.isInteger(maxEntriesPerDay) ||
+    maxEntriesPerDay < 1 ||
+    maxEntriesPerDay > 100
   ) {
     errors.push(
-      "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
+      "1日に要約する最大エントリ数は1-100の整数で入力してください",
     );
   }
 
@@ -549,7 +621,7 @@ export function validateSettings(settings: Partial<Settings>): {
     errors: [],
     validatedSettings: {
       ...normalizedSettings,
-      maxEntriesPerRun,
+      maxEntriesPerDay,
       alarmIntervalMinutes,
       validated: true,
     },

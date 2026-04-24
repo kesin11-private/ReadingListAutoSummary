@@ -524,27 +524,27 @@ export function App(): JSX.Element {
 
             <div>
               <label
-                for="maxEntriesPerRun"
+                for="maxEntriesPerDay"
                 class="block text-sm font-medium text-gray-700 mb-1"
               >
-                1回の実行で既読にする最大エントリ数
+                1日に要約する最大エントリ数
               </label>
               <input
-                id="maxEntriesPerRun"
+                id="maxEntriesPerDay"
                 type="number"
                 min="1"
                 max="100"
-                value={settings.maxEntriesPerRun ?? 3}
+                value={settings.maxEntriesPerDay ?? 3}
                 onInput={(e) =>
                   handleInputChange(
-                    "maxEntriesPerRun",
+                    "maxEntriesPerDay",
                     toNumber((e.target as HTMLInputElement).value),
                   )
                 }
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p class="text-xs text-gray-500 mt-1">
-                アラーム実行時に一度に処理するエントリ数の上限
+                自動実行で1日に要約するエントリ数の上限です。手動実行はこの上限の対象外です。
               </p>
             </div>
           </div>

@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_SETTINGS,
+  getDailySummaryQuotaState,
   getSettings,
+  incrementDailySummaryQuotaCount,
   type Settings,
   saveSettings,
+  setDailySummaryQuotaState,
   type ValidatedSettings,
   validateSettings,
 } from "../../src/common/chrome_storage";
@@ -61,6 +64,7 @@ describe("chrome_storage", () => {
       expect(mockChromeStorage.local.get).toHaveBeenCalledWith([
         "daysUntilRead",
         "daysUntilDelete",
+        "maxEntriesPerDay",
         "maxEntriesPerRun",
         "alarmIntervalMinutes",
         "llmEndpoints",
@@ -81,7 +85,7 @@ describe("chrome_storage", () => {
       const storedSettings = {
         daysUntilRead: 45,
         daysUntilDelete: 90,
-        maxEntriesPerRun: 5,
+        maxEntriesPerDay: 5,
         alarmIntervalMinutes: 120,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
@@ -93,6 +97,17 @@ describe("chrome_storage", () => {
       const result = await getSettings();
 
       expect(result).toEqual(storedSettings);
+    });
+
+    it("旧 maxEntriesPerRun 設定を maxEntriesPerDay に移行する", async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        maxEntriesPerRun: 4,
+        ...validLlmSettings,
+      });
+
+      const result = await getSettings();
+
+      expect(result.maxEntriesPerDay).toBe(4);
     });
 
     it("旧単一LLM設定を新構造へ移行する", async () => {
@@ -143,7 +158,7 @@ describe("chrome_storage", () => {
         ...DEFAULT_SETTINGS,
         daysUntilRead: 20,
         daysUntilDelete: 40,
-        maxEntriesPerRun: 7,
+        maxEntriesPerDay: 7,
         alarmIntervalMinutes: 15,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
@@ -159,11 +174,12 @@ describe("chrome_storage", () => {
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
+        "maxEntriesPerRun",
       ]);
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
         daysUntilRead: 20,
         daysUntilDelete: 40,
-        maxEntriesPerRun: 7,
+        maxEntriesPerDay: 7,
         alarmIntervalMinutes: 15,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
@@ -189,6 +205,7 @@ describe("chrome_storage", () => {
         "openaiEndpoint",
         "openaiApiKey",
         "openaiModel",
+        "maxEntriesPerRun",
         "slackWebhookUrl",
         "tavilyApiKey",
         "systemPrompt",
@@ -208,7 +225,7 @@ describe("chrome_storage", () => {
       ...DEFAULT_SETTINGS,
       daysUntilRead: 30,
       daysUntilDelete: 60,
-      maxEntriesPerRun: 5,
+      maxEntriesPerDay: 5,
       alarmIntervalMinutes: 720,
       contentExtractorProvider: "local-with-tavily-fallback",
       tavilyApiKey: "tv-test",
@@ -298,10 +315,10 @@ describe("chrome_storage", () => {
       expect(
         validateSettings({
           ...baseSettings,
-          maxEntriesPerRun: 0,
+          maxEntriesPerDay: 0,
         }).errors,
       ).toContain(
-        "1回の実行で既読にする最大エントリ数は1-100の整数で入力してください",
+        "1日に要約する最大エントリ数は1-100の整数で入力してください",
       );
       expect(
         validateSettings({
@@ -366,6 +383,48 @@ describe("chrome_storage", () => {
       ).toContain(
         "選択中のLLMモデルが選択中のエンドポイントに紐付いていません",
       );
+    });
+  });
+
+  describe("daily summary quota state", () => {
+    it("今日の日付と一致しない保存値は0件にリセットして返す", async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        dailySummaryQuotaDate: "2026-04-23",
+        dailySummaryQuotaCount: 5,
+      });
+
+      const result = await getDailySummaryQuotaState("2026-04-24");
+
+      expect(result).toEqual({
+        date: "2026-04-24",
+        count: 0,
+      });
+    });
+
+    it("日次要約クォータを保存して増加できる", async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        dailySummaryQuotaDate: "2026-04-24",
+        dailySummaryQuotaCount: 1,
+      });
+
+      await setDailySummaryQuotaState({
+        date: "2026-04-24",
+        count: 1,
+      });
+      const result = await incrementDailySummaryQuotaCount("2026-04-24");
+
+      expect(mockChromeStorage.local.set).toHaveBeenNthCalledWith(1, {
+        dailySummaryQuotaDate: "2026-04-24",
+        dailySummaryQuotaCount: 1,
+      });
+      expect(mockChromeStorage.local.set).toHaveBeenNthCalledWith(2, {
+        dailySummaryQuotaDate: "2026-04-24",
+        dailySummaryQuotaCount: 2,
+      });
+      expect(result).toEqual({
+        date: "2026-04-24",
+        count: 2,
+      });
     });
   });
 });
