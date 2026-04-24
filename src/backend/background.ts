@@ -508,13 +508,14 @@ export async function processReadingListEntries(
     const dailySummaryQuotaState = ignoreDailySummaryQuota
       ? null
       : await getDailySummaryQuotaState();
+    const processedToday = dailySummaryQuotaState?.count ?? 0;
     const remainingDailySummaryQuota = ignoreDailySummaryQuota
       ? Number.POSITIVE_INFINITY
-      : Math.max(0, maxEntriesPerDay - dailySummaryQuotaState.count);
+      : Math.max(0, maxEntriesPerDay - processedToday);
     console.log(
       ignoreDailySummaryQuota
         ? `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、手動実行のため日次要約上限${maxEntriesPerDay}件は適用しません`
-        : `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1日の要約上限${maxEntriesPerDay}件、今日の処理済み${dailySummaryQuotaState?.count ?? 0}件`,
+        : `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1日の要約上限${maxEntriesPerDay}件、今日の処理済み${processedToday}件`,
     );
 
     // エントリ一覧を取得

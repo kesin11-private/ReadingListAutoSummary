@@ -423,7 +423,12 @@ export async function getDailySummaryQuotaState(
     const date = getStringValue(result[DAILY_SUMMARY_QUOTA_DATE_KEY]);
     const count = getNumberValue(result[DAILY_SUMMARY_QUOTA_COUNT_KEY]);
 
-    if (date === today && Number.isInteger(count) && count >= 0) {
+    if (
+      date === today &&
+      count !== undefined &&
+      Number.isInteger(count) &&
+      count >= 0
+    ) {
       return { date, count };
     }
 
@@ -571,9 +576,7 @@ export function validateSettings(settings: Partial<Settings>): {
     maxEntriesPerDay < 1 ||
     maxEntriesPerDay > 100
   ) {
-    errors.push(
-      "1日に要約する最大エントリ数は1-100の整数で入力してください",
-    );
+    errors.push("1日に要約する最大エントリ数は1-100の整数で入力してください");
   }
 
   if (!Number.isInteger(alarmIntervalMinutes) || alarmIntervalMinutes < 1) {

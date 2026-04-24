@@ -317,9 +317,7 @@ describe("chrome_storage", () => {
           ...baseSettings,
           maxEntriesPerDay: 0,
         }).errors,
-      ).toContain(
-        "1日に要約する最大エントリ数は1-100の整数で入力してください",
-      );
+      ).toContain("1日に要約する最大エントリ数は1-100の整数で入力してください");
       expect(
         validateSettings({
           ...baseSettings,
