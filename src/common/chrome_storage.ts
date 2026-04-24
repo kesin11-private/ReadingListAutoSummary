@@ -354,6 +354,23 @@ function parseContentExtractorProvider(
   return DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
 }
 
+function resolveMaxEntriesPerDay(result: StoredSettings): number {
+  const maxEntriesPerDay = getNumberValue(result.maxEntriesPerDay);
+  if (maxEntriesPerDay !== undefined) {
+    return maxEntriesPerDay;
+  }
+
+  const legacyMaxEntriesPerRun = getNumberValue(result.maxEntriesPerRun);
+  if (legacyMaxEntriesPerRun !== undefined) {
+    console.log(
+      "maxEntriesPerRun setting is deprecated; migrating to maxEntriesPerDay",
+    );
+    return legacyMaxEntriesPerRun;
+  }
+
+  return DEFAULT_MAX_ENTRIES_PER_DAY;
+}
+
 /**
  * chrome.storage.localから設定を取得
  */
@@ -374,10 +391,7 @@ export async function getSettings(): Promise<Settings> {
       daysUntilDelete:
         getNumberValue(result.daysUntilDelete) ??
         DEFAULT_SETTINGS.daysUntilDelete,
-      maxEntriesPerDay:
-        getNumberValue(result.maxEntriesPerDay) ??
-        getNumberValue(result.maxEntriesPerRun) ??
-        DEFAULT_MAX_ENTRIES_PER_DAY,
+      maxEntriesPerDay: resolveMaxEntriesPerDay(result),
       alarmIntervalMinutes:
         getNumberValue(result.alarmIntervalMinutes) ??
         DEFAULT_ALARM_INTERVAL_MINUTES,

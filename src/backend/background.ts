@@ -510,7 +510,7 @@ export async function processReadingListEntries(
       : await getDailySummaryQuotaState();
     const processedToday = dailySummaryQuotaState?.count ?? 0;
     const remainingDailySummaryQuota = ignoreDailySummaryQuota
-      ? Number.POSITIVE_INFINITY
+      ? null
       : Math.max(0, maxEntriesPerDay - processedToday);
     console.log(
       ignoreDailySummaryQuota
@@ -527,9 +527,13 @@ export async function processReadingListEntries(
     );
 
     // 古い順にソートし、自動実行時は日次要約上限の残枠で制限
-    const entriesToMarkAsRead = allEntriesToMarkAsRead
-      .sort((a, b) => a.creationTime - b.creationTime) // 古い順でソート
-      .slice(0, remainingDailySummaryQuota);
+    const sortedEntriesToMarkAsRead = allEntriesToMarkAsRead.sort(
+      (a, b) => a.creationTime - b.creationTime,
+    );
+    const entriesToMarkAsRead =
+      remainingDailySummaryQuota === null
+        ? sortedEntriesToMarkAsRead
+        : sortedEntriesToMarkAsRead.slice(0, remainingDailySummaryQuota);
 
     // 削除対象のエントリをフィルタリング
     const entriesToDelete = entries.filter((entry) =>
@@ -539,7 +543,7 @@ export async function processReadingListEntries(
     console.log(
       ignoreDailySummaryQuota
         ? `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件）、削除${entriesToDelete.length}件`
-        : `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち、今日の残枠${remainingDailySummaryQuota}件）、削除${entriesToDelete.length}件`,
+        : `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち、今日の残枠${remainingDailySummaryQuota ?? 0}件）、削除${entriesToDelete.length}件`,
     );
 
     // 既読化処理

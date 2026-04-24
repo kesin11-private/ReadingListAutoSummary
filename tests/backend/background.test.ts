@@ -127,7 +127,7 @@ const completeSettings: Settings = {
   systemPrompt: "カスタムプロンプト",
 };
 
-function mockStorageState(overrides: Record<string, unknown> = {}): void {
+function setupMockStorage(overrides: Record<string, unknown> = {}): void {
   const storedValues = {
     ...completeSettings,
     ...overrides,
@@ -328,7 +328,7 @@ describe("processReadingListEntries", () => {
   it("自動実行では既読化対象を古い順かつ日次上限の残枠まで処理する", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
-    mockStorageState({
+    setupMockStorage({
       dailySummaryQuotaDate: "2099-01-01",
       dailySummaryQuotaCount: 0,
     });
@@ -394,7 +394,7 @@ describe("processReadingListEntries", () => {
   it("自動実行では今日の残枠がなければ既読化しないが削除は続ける", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
-    mockStorageState({
+    setupMockStorage({
       dailySummaryQuotaDate: "2099-01-01",
       dailySummaryQuotaCount: 2,
     });
@@ -429,7 +429,7 @@ describe("processReadingListEntries", () => {
   it("手動実行では日次上限を無視して既読化する", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
-    mockStorageState({
+    setupMockStorage({
       dailySummaryQuotaDate: "2099-01-01",
       dailySummaryQuotaCount: 2,
     });
