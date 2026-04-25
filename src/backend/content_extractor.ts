@@ -9,7 +9,13 @@ import {
 
 // ServiceWorker環境では動的import()が禁止されているため、
 // 静的インポートでPDF.jsモジュールを事前登録する
-await definePDFJSModule(async () => unpdfPdfjs);
+let pdfjsModuleInitialized = false;
+async function ensurePdfjsModule(): Promise<void> {
+  if (!pdfjsModuleInitialized) {
+    await definePDFJSModule(async () => unpdfPdfjs);
+    pdfjsModuleInitialized = true;
+  }
+}
 
 export type ExtractContentOutcome =
   | "local-success"
@@ -155,6 +161,7 @@ async function extractPdfText(
   arrayBuffer: ArrayBuffer,
   url: string,
 ): Promise<LocalExtractResult> {
+  await ensurePdfjsModule();
   let textPages: string[];
   try {
     const docProxy = await getDocumentProxy(arrayBuffer);
