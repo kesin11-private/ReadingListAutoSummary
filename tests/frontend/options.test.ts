@@ -308,14 +308,14 @@ describe("ContentExtractorTest", () => {
   it("Tavilyキー未設定のローカル失敗では要約を実行しない", async () => {
     mockChromeRuntime.sendMessage.mockResolvedValueOnce({
       success: false,
-      error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+      error: "ローカル本文取得に失敗しました: 403 Forbidden",
       outcome: "local-failed-no-fallback",
       attempts: [
         {
           source: "local",
           success: false,
           kind: "fetch-blocked",
-          error: "ローカルHTML取得に失敗しました: 403 Forbidden",
+          error: "ローカル本文取得に失敗しました: 403 Forbidden",
           status: 403,
         },
         {

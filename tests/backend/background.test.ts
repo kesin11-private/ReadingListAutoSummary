@@ -34,7 +34,7 @@ function createExtractSuccessResult(
 }
 
 function createExtractFailureResult(
-  error = "ローカルHTML取得に失敗しました: 403 Forbidden",
+  error = "ローカル本文取得に失敗しました: 403 Forbidden",
 ): ExtractContentResult {
   return {
     success: false,

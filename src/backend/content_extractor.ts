@@ -1,4 +1,5 @@
 import { readable } from "@mizchi/readability";
+import { extractText, getDocumentProxy } from "unpdf";
 import {
   type ContentExtractorProvider,
   DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
@@ -134,6 +135,63 @@ function resolveFallbackTitle(url: string, title?: string): string {
   }
 }
 
+function isPdfContent(contentType: string | null, url: string): boolean {
+  if (contentType !== null) {
+    return contentType.includes("application/pdf");
+  }
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith(".pdf");
+  } catch {
+    return false;
+  }
+}
+
+async function extractPdfText(
+  arrayBuffer: ArrayBuffer,
+  url: string,
+): Promise<LocalExtractResult> {
+  let textPages: string[];
+  try {
+    const docProxy = await getDocumentProxy(arrayBuffer);
+    const result = await extractText(docProxy);
+    textPages = result.text;
+  } catch (error) {
+    return {
+      success: false,
+      attempt: {
+        source: "local",
+        success: false,
+        kind: "parse-failed",
+        error: `PDFテキスト抽出に失敗しました: ${normalizeErrorMessage(error)}`,
+      },
+    };
+  }
+
+  const content = textPages.join("\n\n").trim();
+  if (!content) {
+    return {
+      success: false,
+      attempt: {
+        source: "local",
+        success: false,
+        kind: "parse-failed",
+        error: "PDFからテキストを抽出できませんでした。",
+      },
+    };
+  }
+
+  return {
+    success: true,
+    content,
+    title: resolveFallbackTitle(url),
+    attempt: {
+      source: "local",
+      success: true,
+      kind: "local-success",
+    },
+  };
+}
+
 function isBlockedStatus(status: number): boolean {
   return status === 401 || status === 403 || status === 451;
 }
@@ -161,7 +219,7 @@ export function summarizeExtractionResult(
 }
 
 /**
- * URLから本文を抽出する。ローカルHTML取得 + readability を優先し、
+ * URLから本文を抽出する。ローカル本文取得 + readability を優先し、
  * 失敗時のみ Tavily Extract API にフォールバックする。
  */
 export async function extractContent(
@@ -340,7 +398,7 @@ async function extractWithTavilyOnly(
 }
 
 async function extractLocally(url: string): Promise<LocalExtractResult> {
-  console.log(`ローカルHTML取得開始: ${url}`);
+  console.log(`ローカル本文取得開始: ${url}`);
 
   let response: Response;
   try {
@@ -359,7 +417,7 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
         source: "local",
         success: false,
         kind,
-        error: `ローカルHTML取得に失敗しました: ${normalizeErrorMessage(error)}`,
+        error: `ローカル本文取得に失敗しました: ${normalizeErrorMessage(error)}`,
       },
     };
   }
@@ -375,10 +433,18 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
         source: "local",
         success: false,
         kind,
-        error: `ローカルHTML取得に失敗しました: ${response.status} ${response.statusText}`,
+        error: `ローカル本文取得に失敗しました: ${response.status} ${response.statusText}`,
         status: response.status,
       },
     };
+  }
+
+  // PDFの場合はunpdfでテキスト抽出
+  const contentType = response.headers.get("content-type");
+  if (isPdfContent(contentType, url)) {
+    console.log(`PDFとして処理: ${url}`);
+    const arrayBuffer = await response.arrayBuffer();
+    return extractPdfText(arrayBuffer, url);
   }
 
   const html = await response.text();

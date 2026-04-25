@@ -206,7 +206,7 @@ describe("Message handling", () => {
           source: "local",
           success: false,
           kind: "fetch-blocked",
-          error: "ローカルHTML取得に失敗しました: Failed to fetch",
+          error: "ローカル本文取得に失敗しました: Failed to fetch",
         },
         {
           source: "tavily",
