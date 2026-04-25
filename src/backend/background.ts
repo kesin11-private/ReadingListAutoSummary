@@ -1,7 +1,9 @@
 import {
   DEFAULT_SYSTEM_PROMPT,
   DELETION_DISABLED_VALUE,
+  getDailySummaryQuotaState,
   getSettings,
+  incrementDailySummaryQuotaCount,
   type Settings,
 } from "../common/chrome_storage";
 import {
@@ -34,6 +36,8 @@ import "./alarm"; // アラーム処理の初期化
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+let activeReadingListProcessing: Promise<void> | null = null;
 
 function createExtractFailureResult(error: unknown): ExtractContentResult {
   return {
@@ -400,6 +404,40 @@ async function processSummarization(
   await postToSlack(settings.slackWebhookUrl, slackMessage);
 }
 
+async function markEntryAsRead(
+  entry: chrome.readingList.ReadingListEntry,
+): Promise<void> {
+  console.log(`既読化処理開始: ${entry.title} (${entry.url})`);
+
+  await chrome.readingList.updateEntry({
+    url: entry.url,
+    hasBeenRead: true,
+  });
+
+  console.log(`既読化完了: ${entry.title}`);
+}
+
+async function processEntryToMarkAsRead(
+  entry: chrome.readingList.ReadingListEntry,
+  settings: Settings,
+): Promise<boolean> {
+  try {
+    await markEntryAsRead(entry);
+    await incrementDailySummaryQuotaCount();
+  } catch (error) {
+    console.error(`既読化処理失敗: ${entry.title}`, error);
+    return false;
+  }
+
+  try {
+    await processContentExtraction(entry, settings);
+  } catch (error) {
+    console.error(`要約または通知処理失敗: ${entry.title}`, error);
+  }
+
+  return true;
+}
+
 /**
  * 抽出エラーをSlackに通知するヘルパー関数
  */
@@ -448,17 +486,7 @@ export async function markAsReadAndNotify(
   settings: Settings,
 ): Promise<void> {
   try {
-    console.log(`既読化処理開始: ${entry.title} (${entry.url})`);
-
-    // エントリを既読にマーク
-    await chrome.readingList.updateEntry({
-      url: entry.url,
-      hasBeenRead: true,
-    });
-
-    console.log(`既読化完了: ${entry.title}`);
-
-    // 本文抽出とSlack投稿処理
+    await markEntryAsRead(entry);
     await processContentExtraction(entry, settings);
   } catch (error) {
     console.error(`既読化エラー: ${entry.title}`, error);
@@ -489,15 +517,21 @@ export async function deleteEntry(
 /**
  * リーディングリストエントリの一括処理
  */
-export async function processReadingListEntries(): Promise<void> {
-  console.log("リーディングリスト自動処理開始");
+async function processReadingListEntriesInternal(): Promise<void> {
+  console.log("リーディングリスト処理開始");
 
   try {
     // 設定を取得
     const settings = await getSettings();
-    const maxEntriesPerRun = settings.maxEntriesPerRun ?? 3; // フォールバック
+    const maxEntriesPerDay = settings.maxEntriesPerDay ?? 3;
+    const dailySummaryQuotaState = await getDailySummaryQuotaState();
+    const processedToday = dailySummaryQuotaState.count;
+    const remainingDailySummaryQuota = Math.max(
+      0,
+      maxEntriesPerDay - processedToday,
+    );
     console.log(
-      `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1回の実行で既読にする最大エントリ数${maxEntriesPerRun}件`,
+      `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1日の要約上限${maxEntriesPerDay}件、今日の処理済み${processedToday}件`,
     );
 
     // エントリ一覧を取得
@@ -508,10 +542,14 @@ export async function processReadingListEntries(): Promise<void> {
       shouldMarkAsRead(entry, settings.daysUntilRead),
     );
 
-    // 最大エントリ数で制限（古い順にソート後、先頭から指定数を取得）
-    const entriesToMarkAsRead = allEntriesToMarkAsRead
-      .sort((a, b) => a.creationTime - b.creationTime) // 古い順でソート
-      .slice(0, maxEntriesPerRun);
+    // 古い順にソートし、手動実行・定期実行の両方で共有する日次要約上限の残枠で制限
+    const sortedEntriesToMarkAsRead = allEntriesToMarkAsRead.sort(
+      (a, b) => a.creationTime - b.creationTime,
+    );
+    const entriesToMarkAsRead = sortedEntriesToMarkAsRead.slice(
+      0,
+      remainingDailySummaryQuota,
+    );
 
     // 削除対象のエントリをフィルタリング
     const entriesToDelete = entries.filter((entry) =>
@@ -519,15 +557,14 @@ export async function processReadingListEntries(): Promise<void> {
     );
 
     console.log(
-      `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち）、削除${entriesToDelete.length}件`,
+      `処理対象: 既読化${entriesToMarkAsRead.length}件（全体${allEntriesToMarkAsRead.length}件のうち、今日の残枠${remainingDailySummaryQuota}件）、削除${entriesToDelete.length}件`,
     );
 
     // 既読化処理
     for (const entry of entriesToMarkAsRead) {
-      try {
-        await markAsReadAndNotify(entry, settings);
-      } catch (error) {
-        console.error(`既読化処理失敗: ${entry.title}`, error);
+      const didMarkAsRead = await processEntryToMarkAsRead(entry, settings);
+      if (!didMarkAsRead) {
+        break;
       }
     }
 
@@ -540,8 +577,24 @@ export async function processReadingListEntries(): Promise<void> {
       }
     }
 
-    console.log("リーディングリスト自動処理完了");
+    console.log("リーディングリスト処理完了");
   } catch (error) {
-    console.error("リーディングリスト自動処理でエラーが発生:", error);
+    console.error("リーディングリスト処理でエラーが発生:", error);
   }
+}
+
+export function processReadingListEntries(): Promise<void> {
+  if (activeReadingListProcessing) {
+    console.log(
+      "リーディングリスト処理は既に実行中のため、進行中の処理完了を待機します",
+    );
+    return activeReadingListProcessing;
+  }
+
+  activeReadingListProcessing = processReadingListEntriesInternal().finally(
+    () => {
+      activeReadingListProcessing = null;
+    },
+  );
+  return activeReadingListProcessing;
 }
