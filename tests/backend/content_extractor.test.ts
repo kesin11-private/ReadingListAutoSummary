@@ -6,8 +6,14 @@ vi.stubGlobal("fetch", mockFetch);
 
 // unpdfをモック
 vi.mock("unpdf", () => ({
+  definePDFJSModule: vi.fn(),
   getDocumentProxy: vi.fn(),
   extractText: vi.fn(),
+}));
+
+// unpdf/pdfjsをモック（静的インポート用）
+vi.mock("unpdf/pdfjs", () => ({
+  default: {},
 }));
 
 const { extractContent, summarizeExtractionResult } = await import(

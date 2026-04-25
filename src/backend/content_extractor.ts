@@ -1,10 +1,15 @@
 import { readable } from "@mizchi/readability";
-import { extractText, getDocumentProxy } from "unpdf";
+import { definePDFJSModule, extractText, getDocumentProxy } from "unpdf";
+import * as unpdfPdfjs from "unpdf/pdfjs";
 import {
   type ContentExtractorProvider,
   DEFAULT_CONTENT_EXTRACTOR_PROVIDER,
   DEFAULT_TAVILY_BASE_URL,
 } from "../common/constants";
+
+// ServiceWorker環境では動的import()が禁止されているため、
+// 静的インポートでPDF.jsモジュールを事前登録する
+await definePDFJSModule(async () => unpdfPdfjs);
 
 export type ExtractContentOutcome =
   | "local-success"
