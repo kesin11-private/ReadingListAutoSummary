@@ -108,6 +108,12 @@ describe("chrome_storage", () => {
       const result = await getSettings();
 
       expect(result.maxEntriesPerDay).toBe(4);
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        maxEntriesPerDay: 4,
+      });
+      expect(mockChromeStorage.local.remove).toHaveBeenCalledWith([
+        "maxEntriesPerRun",
+      ]);
     });
 
     it("旧単一LLM設定を新構造へ移行する", async () => {

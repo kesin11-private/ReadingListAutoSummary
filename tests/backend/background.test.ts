@@ -90,6 +90,7 @@ const {
 
 const mockChromeStorageLocal = {
   get: vi.fn(),
+  remove: vi.fn(),
   set: vi.fn(),
 };
 
@@ -135,6 +136,11 @@ function setupMockStorage(overrides: Record<string, unknown> = {}): void {
 
   mockChromeStorageLocal.set.mockImplementation(async (values) => {
     Object.assign(storedValues, values);
+  });
+  mockChromeStorageLocal.remove.mockImplementation(async (keys: string[]) => {
+    for (const key of keys) {
+      delete storedValues[key as keyof typeof storedValues];
+    }
   });
   mockChromeStorageLocal.get.mockImplementation(async (keys?: string[]) => {
     if (!Array.isArray(keys)) {
@@ -474,6 +480,102 @@ describe("processReadingListEntries", () => {
 
     expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
     expect(mockChromeStorageLocal.set).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("既読化後の通知が失敗しても日次クォータは加算する", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
+    setupMockStorage({
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 0,
+    });
+    mockChromeReadingList.query.mockResolvedValue([
+      {
+        url: "https://example.com/oldest",
+        title: "oldest",
+        hasBeenRead: false,
+        creationTime: Date.now() - 60 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now(),
+      },
+    ]);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約",
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockRejectedValue(new Error("slack failed"));
+
+    await processReadingListEntries();
+
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
+    expect(mockChromeStorageLocal.set).toHaveBeenCalledWith({
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 1,
+    });
+    const quotaUpdateCallOrder =
+      mockChromeStorageLocal.set.mock.invocationCallOrder[0];
+    const slackNotificationCallOrder =
+      vi.mocked(mockPostToSlack).mock.invocationCallOrder[0];
+    expect(quotaUpdateCallOrder).toBeDefined();
+    expect(slackNotificationCallOrder).toBeDefined();
+    if (
+      quotaUpdateCallOrder === undefined ||
+      slackNotificationCallOrder === undefined
+    ) {
+      throw new Error("呼び出し順序を検証できませんでした");
+    }
+    expect(quotaUpdateCallOrder).toBeLessThan(slackNotificationCallOrder);
+    vi.useRealTimers();
+  });
+
+  it("同時に複数回呼ばれても既存の処理を共有して二重実行しない", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
+    setupMockStorage({
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 0,
+    });
+    mockChromeReadingList.query.mockResolvedValue([
+      {
+        url: "https://example.com/oldest",
+        title: "oldest",
+        hasBeenRead: false,
+        creationTime: Date.now() - 60 * 24 * 60 * 60 * 1000,
+        lastUpdateTime: Date.now(),
+      },
+    ]);
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約",
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
+
+    const firstProcessing = processReadingListEntries();
+    const secondProcessing = processReadingListEntries();
+
+    expect(firstProcessing).toBe(secondProcessing);
+
+    await Promise.all([firstProcessing, secondProcessing]);
+
+    expect(mockChromeReadingList.query).toHaveBeenCalledTimes(1);
+    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
+    expect(mockChromeStorageLocal.set).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 });

@@ -354,7 +354,33 @@ function parseContentExtractorProvider(
   return DEFAULT_CONTENT_EXTRACTOR_PROVIDER;
 }
 
-function resolveMaxEntriesPerDay(result: StoredSettings): number {
+async function persistLegacyMaxEntriesPerDayMigration(
+  maxEntriesPerDay: number,
+): Promise<void> {
+  const didPersistMaxEntriesPerDay = await Promise.resolve(
+    chrome.storage.local.set({ maxEntriesPerDay }),
+  ).then(
+    () => true,
+    (error: unknown) => {
+      console.error("旧 maxEntriesPerRun 設定の移行保存エラー:", error);
+      return false;
+    },
+  );
+
+  if (!didPersistMaxEntriesPerDay) {
+    return;
+  }
+
+  await Promise.resolve(
+    chrome.storage.local.remove(["maxEntriesPerRun"]),
+  ).catch((error: unknown) => {
+    console.error("旧 maxEntriesPerRun 設定の削除エラー:", error);
+  });
+}
+
+async function resolveMaxEntriesPerDay(
+  result: StoredSettings,
+): Promise<number> {
   const maxEntriesPerDay = getNumberValue(result.maxEntriesPerDay);
   if (maxEntriesPerDay !== undefined) {
     return maxEntriesPerDay;
@@ -362,9 +388,7 @@ function resolveMaxEntriesPerDay(result: StoredSettings): number {
 
   const legacyMaxEntriesPerRun = getNumberValue(result.maxEntriesPerRun);
   if (legacyMaxEntriesPerRun !== undefined) {
-    console.log(
-      "maxEntriesPerRun setting is deprecated; migrating to maxEntriesPerDay",
-    );
+    await persistLegacyMaxEntriesPerDayMigration(legacyMaxEntriesPerRun);
     return legacyMaxEntriesPerRun;
   }
 
@@ -391,7 +415,7 @@ export async function getSettings(): Promise<Settings> {
       daysUntilDelete:
         getNumberValue(result.daysUntilDelete) ??
         DEFAULT_SETTINGS.daysUntilDelete,
-      maxEntriesPerDay: resolveMaxEntriesPerDay(result),
+      maxEntriesPerDay: await resolveMaxEntriesPerDay(result),
       alarmIntervalMinutes:
         getNumberValue(result.alarmIntervalMinutes) ??
         DEFAULT_ALARM_INTERVAL_MINUTES,

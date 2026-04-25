@@ -544,7 +544,7 @@ export function App(): JSX.Element {
                 class="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p class="text-xs text-gray-500 mt-1">
-                自動実行で1日に要約するエントリ数の上限です。手動実行はこの上限の対象外です。
+                手動実行・定期実行を合わせて、1日に要約するエントリ数の上限です。
               </p>
             </div>
           </div>
