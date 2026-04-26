@@ -1,7 +1,4 @@
-import { createRequire } from "node:module";
-import { extractText, getDocumentProxy, getMeta } from "unpdf";
-
-const require = createRequire(import.meta.url);
+import { extractText, getDocumentProxy } from "unpdf";
 
 function normalizeError(error) {
   if (error instanceof Error) {
@@ -15,17 +12,6 @@ function normalizeError(error) {
     message: String(error),
     stack: undefined,
   };
-}
-
-function getUnpdfVersion() {
-  try {
-    const packageJson = require("unpdf/package.json");
-    return typeof packageJson.version === "string"
-      ? packageJson.version
-      : "unknown";
-  } catch {
-    return "unknown";
-  }
 }
 
 const PDFS = [
@@ -63,32 +49,6 @@ async function validatePdf(pdfConfig) {
     // Use getDocumentProxy to avoid ArrayBuffer detachment issues
     // (passing raw ArrayBuffer to multiple functions detaches it)
     const docProxy = await getDocumentProxy(arrayBuffer);
-
-    // Extract metadata
-    console.log("\n   --- Metadata ---");
-    try {
-      const meta = await getMeta(docProxy);
-      if (meta.info) {
-        const title = meta.info.Title || "(no title)";
-        const author = meta.info.Author || "(no author)";
-        const subject = meta.info.Subject || "(no subject)";
-        const creator = meta.info.Creator || "(no creator)";
-        console.log(`   Title:   ${title}`);
-        console.log(`   Author:  ${author}`);
-        console.log(`   Subject: ${subject}`);
-        console.log(`   Creator: ${creator}`);
-      }
-      if (meta.metadata) {
-        const metadataStr = String(meta.metadata);
-        console.log(
-          `   Raw metadata (first 200 chars): ${metadataStr.slice(0, 200)}`,
-        );
-      }
-    } catch (metaError) {
-      console.log(
-        `   Metadata extraction failed: ${normalizeError(metaError).message}`,
-      );
-    }
 
     // Extract text (per-page)
     console.log("\n   --- Text Extraction (per-page) ---");
@@ -154,7 +114,6 @@ async function validatePdf(pdfConfig) {
 }
 
 console.log("🔍 unpdf Validation Script");
-console.log(`   unpdf version: ${getUnpdfVersion()}`);
 
 const results = [];
 for (const pdf of PDFS) {
