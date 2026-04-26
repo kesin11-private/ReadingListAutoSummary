@@ -1,4 +1,32 @@
+import { createRequire } from "node:module";
 import { extractText, getDocumentProxy, getMeta } from "unpdf";
+
+const require = createRequire(import.meta.url);
+
+function normalizeError(error) {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    message: String(error),
+    stack: undefined,
+  };
+}
+
+function getUnpdfVersion() {
+  try {
+    const packageJson = require("unpdf/package.json");
+    return typeof packageJson.version === "string"
+      ? packageJson.version
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 const PDFS = [
   {
@@ -57,7 +85,9 @@ async function validatePdf(pdfConfig) {
         );
       }
     } catch (metaError) {
-      console.log(`   Metadata extraction failed: ${metaError.message}`);
+      console.log(
+        `   Metadata extraction failed: ${normalizeError(metaError).message}`,
+      );
     }
 
     // Extract text (per-page)
@@ -72,8 +102,7 @@ async function validatePdf(pdfConfig) {
     console.log(`   Total characters: ${totalChars.toLocaleString()}`);
 
     // Per-page stats
-    for (let i = 0; i < result.text.length; i++) {
-      const pageText = result.text[i];
+    for (const [i, pageText] of result.text.entries()) {
       console.log(
         `   Page ${i + 1}: ${pageText.length.toLocaleString()} chars`,
       );
@@ -113,18 +142,19 @@ async function validatePdf(pdfConfig) {
 
     return { success: true, totalChars, pages: result.totalPages };
   } catch (error) {
-    console.log(`\n   ❌ ERROR: ${error.message}`);
-    console.log(
-      `   Stack: ${error.stack?.split("\n").slice(0, 3).join("\n         ")}`,
-    );
-    return { success: false, error: error.message };
+    const normalizedError = normalizeError(error);
+    console.log(`\n   ❌ ERROR: ${normalizedError.message}`);
+    if (normalizedError.stack) {
+      console.log(
+        `   Stack: ${normalizedError.stack.split("\n").slice(0, 3).join("\n         ")}`,
+      );
+    }
+    return { success: false, error: normalizedError.message };
   }
 }
 
 console.log("🔍 unpdf Validation Script");
-console.log(
-  `   unpdf version: ${await import("unpdf/package.json").then((m) => m.default.version).catch(() => "unknown")}`,
-);
+console.log(`   unpdf version: ${getUnpdfVersion()}`);
 
 const results = [];
 for (const pdf of PDFS) {

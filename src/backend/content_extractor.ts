@@ -147,9 +147,11 @@ function resolveFallbackTitle(url: string, title?: string): string {
 }
 
 function isPdfContent(contentType: string | null, url: string): boolean {
-  if (contentType !== null) {
-    return contentType.includes("application/pdf");
+  const normalizedContentType = contentType?.trim().toLowerCase() ?? "";
+  if (normalizedContentType.includes("application/pdf")) {
+    return true;
   }
+
   try {
     return new URL(url).pathname.toLowerCase().endsWith(".pdf");
   } catch {
@@ -161,9 +163,9 @@ async function extractPdfText(
   arrayBuffer: ArrayBuffer,
   url: string,
 ): Promise<LocalExtractResult> {
-  await ensurePdfjsModule();
   let textPages: string[];
   try {
+    await ensurePdfjsModule();
     const docProxy = await getDocumentProxy(arrayBuffer);
     const result = await extractText(docProxy);
     textPages = result.text;
@@ -218,7 +220,7 @@ function isFetchBlockedError(error: unknown): boolean {
 
 function formatAttempt(attempt: ExtractAttempt): string {
   const status = attempt.status !== undefined ? `(${attempt.status})` : "";
-  const error = attempt.success || !attempt.error ? "" : `:${attempt.error}`;
+  const error = !attempt.success && attempt.error ? `:${attempt.error}` : "";
   return `${attempt.source}:${attempt.kind}${status}${error}`;
 }
 
@@ -455,7 +457,21 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
   const contentType = response.headers.get("content-type");
   if (isPdfContent(contentType, url)) {
     console.log(`PDFとして処理: ${url}`);
-    const arrayBuffer = await response.arrayBuffer();
+    let arrayBuffer: ArrayBuffer;
+    try {
+      arrayBuffer = await response.arrayBuffer();
+    } catch (error) {
+      return {
+        success: false,
+        attempt: {
+          source: "local",
+          success: false,
+          kind: "fetch-failed",
+          error: `PDF本文取得に失敗しました: ${normalizeErrorMessage(error)}`,
+        },
+      };
+    }
+
     return extractPdfText(arrayBuffer, url);
   }
 

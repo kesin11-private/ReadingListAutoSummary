@@ -421,7 +421,7 @@ describe("extractContent", () => {
   });
 
   describe("PDF抽出", () => {
-    it("Content-Type が application/pdf の場合、unpdfでテキスト抽出に成功する", async () => {
+    it("Content-Type が大文字小文字違いでもPDFとして扱い、unpdfでテキスト抽出に成功する", async () => {
       const mockDocProxy = {};
       const mockPdfText = ["1ページ目のテキスト", "2ページ目のテキスト"];
       vi.mocked(getDocumentProxy).mockResolvedValueOnce(mockDocProxy as never);
@@ -434,7 +434,9 @@ describe("extractContent", () => {
         createMockResponse({
           headers: {
             get: (name: string) =>
-              name === "content-type" ? "application/pdf" : null,
+              name === "content-type"
+                ? "Application/PDF; charset=binary"
+                : null,
           },
           arrayBuffer: async () => new ArrayBuffer(100),
         }),
@@ -460,7 +462,7 @@ describe("extractContent", () => {
       expect(extractText).toHaveBeenCalledWith(mockDocProxy);
     });
 
-    it("Content-Type ヘッダーがなくてもURLが.pdfで終わる場合はPDFとして処理する", async () => {
+    it("Content-Type が PDF 以外でもURLが.pdfで終わる場合はPDFとして処理する", async () => {
       const mockDocProxy = {};
       const mockPdfText = ["PDF本文テキスト"];
       vi.mocked(getDocumentProxy).mockResolvedValueOnce(mockDocProxy as never);
@@ -471,7 +473,7 @@ describe("extractContent", () => {
 
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
-          headers: { get: () => null },
+          headers: { get: () => "application/octet-stream" },
           arrayBuffer: async () => new ArrayBuffer(100),
         }),
       );
@@ -486,6 +488,57 @@ describe("extractContent", () => {
       expect(result.content).toBe("PDF本文テキスト");
       expect(result.source).toBe("local");
       expect(result.outcome).toBe("local-success");
+    });
+
+    it("PDFレスポンスの arrayBuffer 読み取り失敗時も Tavily にフォールバックする", async () => {
+      const mockTavilyContent = "# Tavily PDF本文\n\nPDFの代替コンテンツ";
+      mockFetch
+        .mockResolvedValueOnce(
+          createMockResponse({
+            headers: { get: () => "application/pdf" },
+            arrayBuffer: async () => {
+              throw new Error("Body stream aborted");
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          createMockResponse({
+            json: async () => ({
+              results: [
+                {
+                  url: "https://example.com/paper.pdf",
+                  raw_content: mockTavilyContent,
+                  title: "Tavily PDFタイトル",
+                },
+              ],
+            }),
+          }),
+        );
+
+      const result = await extractContent("https://example.com/paper.pdf", {
+        tavily: { apiKey: "tv-test-key" },
+      });
+
+      expect(result).toEqual({
+        success: true,
+        content: mockTavilyContent,
+        title: "Tavily PDFタイトル",
+        source: "tavily",
+        outcome: "tavily-fallback-success",
+        attempts: [
+          {
+            source: "local",
+            success: false,
+            kind: "fetch-failed",
+            error: "PDF本文取得に失敗しました: Body stream aborted",
+          },
+          {
+            source: "tavily",
+            success: true,
+            kind: "tavily-success",
+          },
+        ],
+      });
     });
 
     it("PDFテキスト抽出結果が空の場合は parse-failed となる", async () => {
