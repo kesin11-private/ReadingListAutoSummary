@@ -47,36 +47,82 @@ function getErrorMessage(error: unknown): string {
 
 let activeReadingListProcessing: Promise<void> | null = null;
 
-async function appendSessionLogEventSafely(
-  sessionId: string | null,
-  event: SessionLogEvent,
-): Promise<void> {
-  if (!sessionId) {
-    return;
+class SessionLogger {
+  private constructor(private readonly sessionId: string | null) {}
+
+  static async create(trigger: SessionTrigger): Promise<SessionLogger> {
+    const sessionId = generateSessionId();
+
+    try {
+      await startSessionLog(sessionId, trigger);
+      return new SessionLogger(sessionId);
+    } catch (error) {
+      console.error("セッションログ開始エラー:", error);
+      return new SessionLogger(null);
+    }
   }
 
-  try {
-    await appendSessionLogEvent(sessionId, event);
-  } catch (error) {
-    console.error("セッションログ追記エラー:", error);
+  static noop(): SessionLogger {
+    return new SessionLogger(null);
   }
-}
 
-async function appendSessionStepEvent(
-  sessionId: string | null,
-  entry: chrome.readingList.ReadingListEntry,
-  step: SessionLogStep,
-  success: boolean,
-  detail?: string,
-): Promise<void> {
-  await appendSessionLogEventSafely(sessionId, {
-    type: success ? "step-success" : "step-failure",
-    timestamp: Date.now(),
-    entryUrl: entry.url,
-    entryTitle: entry.title,
-    step,
-    ...(detail ? { detail } : {}),
-  });
+  async appendEvent(event: SessionLogEvent): Promise<void> {
+    if (!this.sessionId) {
+      return;
+    }
+
+    try {
+      await appendSessionLogEvent(this.sessionId, event);
+    } catch (error) {
+      console.error("セッションログ追記エラー:", error);
+    }
+  }
+
+  async appendStep(
+    entry: chrome.readingList.ReadingListEntry,
+    step: SessionLogStep,
+    success: boolean,
+    detail?: string,
+  ): Promise<void> {
+    await this.appendEvent({
+      type: success ? "step-success" : "step-failure",
+      timestamp: Date.now(),
+      entryUrl: entry.url,
+      entryTitle: entry.title,
+      step,
+      ...(detail ? { detail } : {}),
+    });
+  }
+
+  async startEntry(entry: chrome.readingList.ReadingListEntry): Promise<void> {
+    await this.appendEvent({
+      type: "entry-start",
+      timestamp: Date.now(),
+      entryUrl: entry.url,
+      entryTitle: entry.title,
+    });
+  }
+
+  async complete(maxDebugSessionLogs: number): Promise<void> {
+    if (!this.sessionId) {
+      return;
+    }
+
+    await completeSessionLog(this.sessionId).catch((error) => {
+      console.error("セッションログ完了エラー:", error);
+    });
+    await pruneSessionLogs(maxDebugSessionLogs).catch((error) => {
+      console.error("セッションログ削除エラー:", error);
+    });
+  }
+
+  async sessionError(error: unknown): Promise<void> {
+    await this.appendEvent({
+      type: "session-error",
+      timestamp: Date.now(),
+      detail: getErrorMessage(error),
+    });
+  }
 }
 
 function createExtractFailureResult(error: unknown): ExtractContentResult {
@@ -371,7 +417,7 @@ export function shouldDelete(
 async function processContentExtraction(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
-  sessionId: string | null = null,
+  sessionLogger: SessionLogger,
 ): Promise<void> {
   const extractResult = await extractContent(
     entry.url,
@@ -380,8 +426,7 @@ async function processContentExtraction(
   const extractionSummary = summarizeExtractionResult(extractResult);
 
   if (!extractResult.success) {
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "extract",
       false,
@@ -394,20 +439,19 @@ async function processContentExtraction(
       entry,
       settings,
       `${extractResult.error} (${extractionSummary})`,
-      sessionId,
+      sessionLogger,
     );
     return;
   }
 
-  await appendSessionStepEvent(
-    sessionId,
+  await sessionLogger.appendStep(
     entry,
     "extract",
     true,
     extractionSummary,
   );
   console.log(`本文抽出成功: ${entry.title} (${extractionSummary})`);
-  await processSummarization(entry, extractResult.content, settings, sessionId);
+  await processSummarization(entry, extractResult.content, settings, sessionLogger);
 }
 
 /**
@@ -417,7 +461,7 @@ async function processSummarization(
   entry: chrome.readingList.ReadingListEntry,
   content: string,
   settings: Settings,
-  sessionId: string | null = null,
+  sessionLogger: SessionLogger,
 ): Promise<void> {
   const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
@@ -432,15 +476,13 @@ async function processSummarization(
     console.warn(
       "LLM設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
     );
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "summarize",
       false,
       error || "LLM設定またはSlack設定が不完全のためスキップしました。",
     );
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "post-slack",
       false,
@@ -460,8 +502,7 @@ async function processSummarization(
     error: getErrorMessage(summarizeError),
   }));
 
-  await appendSessionStepEvent(
-    sessionId,
+  await sessionLogger.appendStep(
     entry,
     "summarize",
     summarizeResult.success,
@@ -487,8 +528,7 @@ async function processSummarization(
 
   try {
     await postToSlack(settings.slackWebhookUrl, slackMessage);
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "post-slack",
       true,
@@ -497,8 +537,7 @@ async function processSummarization(
         : "エラー通知を投稿しました",
     );
   } catch (error) {
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "post-slack",
       false,
@@ -524,10 +563,10 @@ async function markEntryAsRead(
 export async function processEntryToMarkAsRead(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
-  sessionId: string | null = null,
+  sessionLogger: SessionLogger = SessionLogger.noop(),
 ): Promise<boolean> {
   try {
-    await processContentExtraction(entry, settings, sessionId);
+    await processContentExtraction(entry, settings, sessionLogger);
   } catch (error) {
     console.error(`要約または通知処理失敗: ${entry.title}`, error);
     return false;
@@ -535,16 +574,14 @@ export async function processEntryToMarkAsRead(
 
   try {
     await incrementDailySummaryQuotaCount();
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "increment-quota",
       true,
       "日次クォータを加算しました",
     );
   } catch (error) {
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "increment-quota",
       false,
@@ -556,16 +593,14 @@ export async function processEntryToMarkAsRead(
 
   try {
     await markEntryAsRead(entry);
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "mark-as-read",
       true,
       "既読化しました",
     );
   } catch (error) {
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "mark-as-read",
       false,
@@ -585,13 +620,12 @@ async function notifyExtractionError(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
   error?: string,
-  sessionId: string | null = null,
+  sessionLogger: SessionLogger = SessionLogger.noop(),
 ): Promise<void> {
   const selectedModel = getSelectedLlmModel(settings);
 
   if (!settings.slackWebhookUrl || !selectedModel?.modelName.trim()) {
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "post-slack",
       false,
@@ -608,16 +642,14 @@ async function notifyExtractionError(
   );
   try {
     await postToSlack(settings.slackWebhookUrl, errorMessage);
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "post-slack",
       true,
       "本文抽出エラーを投稿しました",
     );
   } catch (postError) {
-    await appendSessionStepEvent(
-      sessionId,
+    await sessionLogger.appendStep(
       entry,
       "post-slack",
       false,
@@ -671,18 +703,13 @@ async function processReadingListEntriesInternal(
   trigger: SessionTrigger,
 ): Promise<void> {
   console.log("リーディングリスト処理開始");
-  let sessionId: string | null = null;
   let settings: Settings | null = null;
+  const sessionLogger = await SessionLogger.create(trigger);
 
   try {
     // 設定を取得
     settings = await getSettings();
     const resolvedSettings = settings;
-    sessionId = generateSessionId();
-    await startSessionLog(sessionId, trigger).catch((error) => {
-      console.error("セッションログ開始エラー:", error);
-      sessionId = null;
-    });
     const maxEntriesPerDay = resolvedSettings.maxEntriesPerDay ?? 3;
     const dailySummaryQuotaState = await getDailySummaryQuotaState();
     const processedToday = dailySummaryQuotaState.count;
@@ -722,16 +749,11 @@ async function processReadingListEntriesInternal(
 
     // 既読化処理
     for (const entry of entriesToMarkAsRead) {
-      await appendSessionLogEventSafely(sessionId, {
-        type: "entry-start",
-        timestamp: Date.now(),
-        entryUrl: entry.url,
-        entryTitle: entry.title,
-      });
+      await sessionLogger.startEntry(entry);
       const didMarkAsRead = await processEntryToMarkAsRead(
         entry,
         resolvedSettings,
-        sessionId,
+        sessionLogger,
       );
       if (!didMarkAsRead) {
         break;
@@ -747,23 +769,10 @@ async function processReadingListEntriesInternal(
       }
     }
 
-    if (sessionId) {
-      await completeSessionLog(sessionId).catch((error) => {
-        console.error("セッションログ完了エラー:", error);
-      });
-      await pruneSessionLogs(resolvedSettings.maxDebugSessionLogs ?? 10).catch(
-        (error) => {
-          console.error("セッションログ削除エラー:", error);
-        },
-      );
-    }
+    await sessionLogger.complete(resolvedSettings.maxDebugSessionLogs ?? 10);
     console.log("リーディングリスト処理完了");
   } catch (error) {
-    await appendSessionLogEventSafely(sessionId, {
-      type: "session-error",
-      timestamp: Date.now(),
-      detail: getErrorMessage(error),
-    });
+    await sessionLogger.sessionError(error);
     console.error("リーディングリスト処理でエラーが発生:", error);
   }
 }
