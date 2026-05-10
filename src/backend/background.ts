@@ -1,18 +1,18 @@
 import {
-  DEFAULT_SYSTEM_PROMPT,
-  DELETION_DISABLED_VALUE,
   appendSessionLogEvent,
   completeSessionLog,
+  DEFAULT_SYSTEM_PROMPT,
+  DELETION_DISABLED_VALUE,
   generateSessionId,
   getDailySummaryQuotaState,
   getSettings,
-  pruneSessionLogs,
   incrementDailySummaryQuotaCount,
-  startSessionLog,
+  pruneSessionLogs,
   type SessionLogEvent,
   type SessionLogStep,
   type SessionTrigger,
   type Settings,
+  startSessionLog,
 } from "../common/chrome_storage";
 import {
   getSelectedLlmEndpoint,
@@ -373,9 +373,10 @@ async function processContentExtraction(
   settings: Settings,
   sessionId: string | null = null,
 ): Promise<void> {
-  const extractResult = await extractContent(entry.url, buildExtractorConfig(settings)).catch(
-    (error: unknown) => createExtractFailureResult(error),
-  );
+  const extractResult = await extractContent(
+    entry.url,
+    buildExtractorConfig(settings),
+  ).catch((error: unknown) => createExtractFailureResult(error));
   const extractionSummary = summarizeExtractionResult(extractResult);
 
   if (!extractResult.success) {
@@ -491,7 +492,9 @@ async function processSummarization(
       entry,
       "post-slack",
       true,
-      summarizeResult.success ? "要約を投稿しました" : "エラー通知を投稿しました",
+      summarizeResult.success
+        ? "要約を投稿しました"
+        : "エラー通知を投稿しました",
     );
   } catch (error) {
     await appendSessionStepEvent(
@@ -775,10 +778,10 @@ export function processReadingListEntries(
     return activeReadingListProcessing;
   }
 
-  activeReadingListProcessing = processReadingListEntriesInternal(trigger).finally(
-    () => {
-      activeReadingListProcessing = null;
-    },
-  );
+  activeReadingListProcessing = processReadingListEntriesInternal(
+    trigger,
+  ).finally(() => {
+    activeReadingListProcessing = null;
+  });
   return activeReadingListProcessing;
 }

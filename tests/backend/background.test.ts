@@ -413,20 +413,23 @@ describe("processReadingListEntries", () => {
       url: "https://example.com/middle",
       hasBeenRead: true,
     });
-    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([{
-      dailySummaryQuotaDate: "2099-01-01",
-      dailySummaryQuotaCount: 1,
-    }]);
-    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([{
-      dailySummaryQuotaDate: "2099-01-01",
-      dailySummaryQuotaCount: 2,
-    }]);
-    const quotaUpdateCallOrder = mockChromeStorageLocal.set.mock.calls
-      .find(
-        ([value]) =>
-          value.dailySummaryQuotaDate === "2099-01-01" &&
-          value.dailySummaryQuotaCount === 1,
-      )
+    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([
+      {
+        dailySummaryQuotaDate: "2099-01-01",
+        dailySummaryQuotaCount: 1,
+      },
+    ]);
+    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([
+      {
+        dailySummaryQuotaDate: "2099-01-01",
+        dailySummaryQuotaCount: 2,
+      },
+    ]);
+    const quotaUpdateCallOrder = mockChromeStorageLocal.set.mock.calls.find(
+      ([value]) =>
+        value.dailySummaryQuotaDate === "2099-01-01" &&
+        value.dailySummaryQuotaCount === 1,
+    )
       ? mockChromeStorageLocal.set.mock.invocationCallOrder[
           mockChromeStorageLocal.set.mock.calls.findIndex(
             ([value]) =>
@@ -480,10 +483,12 @@ describe("processReadingListEntries", () => {
     expect(mockChromeReadingList.removeEntry).toHaveBeenCalledWith({
       url: "https://example.com/read",
     });
-    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([{
-      dailySummaryQuotaDate: "2099-01-01",
-      dailySummaryQuotaCount: 1,
-    }]);
+    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([
+      {
+        dailySummaryQuotaDate: "2099-01-01",
+        dailySummaryQuotaCount: 1,
+      },
+    ]);
     vi.useRealTimers();
   });
 
@@ -534,10 +539,12 @@ describe("processReadingListEntries", () => {
     await processReadingListEntries();
 
     expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
-    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([{
-      dailySummaryQuotaDate: "2099-01-01",
-      dailySummaryQuotaCount: 3,
-    }]);
+    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([
+      {
+        dailySummaryQuotaDate: "2099-01-01",
+        dailySummaryQuotaCount: 3,
+      },
+    ]);
     vi.useRealTimers();
   });
 
@@ -574,10 +581,12 @@ describe("processReadingListEntries", () => {
     await processReadingListEntries();
 
     expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
-    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([{
-      dailySummaryQuotaDate: "2099-01-01",
-      dailySummaryQuotaCount: 1,
-    }]);
+    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([
+      {
+        dailySummaryQuotaDate: "2099-01-01",
+        dailySummaryQuotaCount: 1,
+      },
+    ]);
     vi.useRealTimers();
   });
 
@@ -620,10 +629,12 @@ describe("processReadingListEntries", () => {
 
     expect(mockChromeReadingList.query).toHaveBeenCalledTimes(1);
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([{
-      dailySummaryQuotaDate: "2099-01-01",
-      dailySummaryQuotaCount: 1,
-    }]);
+    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([
+      {
+        dailySummaryQuotaDate: "2099-01-01",
+        dailySummaryQuotaCount: 1,
+      },
+    ]);
     vi.useRealTimers();
   });
 });

@@ -683,7 +683,9 @@ export async function getAllSessionLogs(): Promise<SessionLog[]> {
     return [];
   }
 
-  const storageKeys = index.map((sessionId) => getSessionLogStorageKey(sessionId));
+  const storageKeys = index.map((sessionId) =>
+    getSessionLogStorageKey(sessionId),
+  );
   const result = (await chrome.storage.local.get(storageKeys)) as Record<
     string,
     unknown

@@ -332,7 +332,9 @@ export function App(): JSX.Element {
   const [manualMessage, setManualMessage] = useState<string | null>(null);
   const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(
+    null,
+  );
 
   async function loadSettings(): Promise<void> {
     try {
@@ -1048,7 +1050,9 @@ export function App(): JSX.Element {
         </div>
 
         {sessionLogs.length === 0 ? (
-          <p class="text-sm text-gray-500">保存されたセッションログはありません。</p>
+          <p class="text-sm text-gray-500">
+            保存されたセッションログはありません。
+          </p>
         ) : (
           <div class="space-y-3">
             {sessionLogs.map((sessionLog) => {
@@ -1063,7 +1067,9 @@ export function App(): JSX.Element {
                     type="button"
                     onClick={() =>
                       setExpandedSessionId((prev) =>
-                        prev === sessionLog.sessionId ? null : sessionLog.sessionId,
+                        prev === sessionLog.sessionId
+                          ? null
+                          : sessionLog.sessionId,
                       )
                     }
                     class="w-full text-left px-4 py-3 flex items-center justify-between gap-3"
@@ -1096,11 +1102,19 @@ export function App(): JSX.Element {
                               {formatTimestamp(event.timestamp)} / {event.type}
                               {event.step ? ` / ${event.step}` : ""}
                             </div>
-                            {(event.entryTitle || event.entryUrl || event.detail) && (
+                            {(event.entryTitle ||
+                              event.entryUrl ||
+                              event.detail) && (
                               <div class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">
-                                {event.entryTitle && <div>title: {event.entryTitle}</div>}
-                                {event.entryUrl && <div>url: {event.entryUrl}</div>}
-                                {event.detail && <div>detail: {event.detail}</div>}
+                                {event.entryTitle && (
+                                  <div>title: {event.entryTitle}</div>
+                                )}
+                                {event.entryUrl && (
+                                  <div>url: {event.entryUrl}</div>
+                                )}
+                                {event.detail && (
+                                  <div>detail: {event.detail}</div>
+                                )}
                               </div>
                             )}
                           </li>

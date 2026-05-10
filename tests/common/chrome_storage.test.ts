@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  DEFAULT_SETTINGS,
   appendSessionLogEvent,
   completeSessionLog,
+  DEFAULT_SETTINGS,
   generateSessionId,
-  getDailySummaryQuotaState,
   getAllSessionLogs,
+  getDailySummaryQuotaState,
   getSettings,
   incrementDailySummaryQuotaCount,
   pruneSessionLogs,
-  startSessionLog,
+  type SessionLog,
   type Settings,
   saveSettings,
   setDailySummaryQuotaState,
-  type SessionLog,
+  startSessionLog,
   type ValidatedSettings,
   validateSettings,
 } from "../../src/common/chrome_storage";
@@ -458,27 +458,31 @@ describe("chrome_storage", () => {
         ...initialValues,
       };
 
-      mockChromeStorage.local.get.mockImplementation(async (keys?: string[]) => {
-        if (!Array.isArray(keys)) {
-          return storedValues;
-        }
+      mockChromeStorage.local.get.mockImplementation(
+        async (keys?: string[]) => {
+          if (!Array.isArray(keys)) {
+            return storedValues;
+          }
 
-        return Object.fromEntries(
-          keys.flatMap((key) =>
-            storedValues[key] === undefined ? [] : [[key, storedValues[key]]],
-          ),
-        );
-      });
+          return Object.fromEntries(
+            keys.flatMap((key) =>
+              storedValues[key] === undefined ? [] : [[key, storedValues[key]]],
+            ),
+          );
+        },
+      );
       mockChromeStorage.local.set.mockImplementation(
         async (values: Record<string, unknown>) => {
           Object.assign(storedValues, values);
         },
       );
-      mockChromeStorage.local.remove.mockImplementation(async (keys: string[]) => {
-        for (const key of keys) {
-          delete storedValues[key];
-        }
-      });
+      mockChromeStorage.local.remove.mockImplementation(
+        async (keys: string[]) => {
+          for (const key of keys) {
+            delete storedValues[key];
+          }
+        },
+      );
 
       return storedValues;
     }
@@ -503,7 +507,9 @@ describe("chrome_storage", () => {
 
       expect(log.sessionId).toBe("20260510-143022");
       expect(storedValues.sessionLogIndex).toEqual(["20260510-143022"]);
-      const sessionLog = storedValues["sessionLog:20260510-143022"] as SessionLog;
+      const sessionLog = storedValues[
+        "sessionLog:20260510-143022"
+      ] as SessionLog;
       expect(sessionLog.trigger).toBe("manual");
       expect(sessionLog.completedAt).toBeTypeOf("number");
       expect(sessionLog.events.map((event) => event.type)).toEqual([
@@ -516,9 +522,24 @@ describe("chrome_storage", () => {
     it("pruneSessionLogs は保持件数を超えた古いログを削除する", async () => {
       const storedValues = setupSessionLogStorage({
         sessionLogIndex: ["1", "2", "3"],
-        "sessionLog:1": { sessionId: "1", trigger: "scheduled", startedAt: 1, events: [] },
-        "sessionLog:2": { sessionId: "2", trigger: "scheduled", startedAt: 2, events: [] },
-        "sessionLog:3": { sessionId: "3", trigger: "scheduled", startedAt: 3, events: [] },
+        "sessionLog:1": {
+          sessionId: "1",
+          trigger: "scheduled",
+          startedAt: 1,
+          events: [],
+        },
+        "sessionLog:2": {
+          sessionId: "2",
+          trigger: "scheduled",
+          startedAt: 2,
+          events: [],
+        },
+        "sessionLog:3": {
+          sessionId: "3",
+          trigger: "scheduled",
+          startedAt: 3,
+          events: [],
+        },
       });
 
       await pruneSessionLogs(2);
