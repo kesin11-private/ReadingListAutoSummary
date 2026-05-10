@@ -12,6 +12,7 @@ import {
   removeSelectedLlmEndpoint,
   removeSelectedLlmModel,
   selectLlmEndpoint,
+  sortSessionLogsForUi,
   updateSelectedLlmEndpoint,
   updateSelectedLlmModel,
 } from "../../src/frontend/options/options";
@@ -168,6 +169,25 @@ describe("options helpers", () => {
     expect(result.llmModels.map((model) => model.id)).toEqual(["model-2"]);
     expect(result.selectedLlmEndpointId).toBe("endpoint-2");
     expect(result.selectedLlmModelId).toBe("model-2");
+  });
+
+  it("セッションログを新しい順に並べ替える", () => {
+    const sorted = sortSessionLogsForUi([
+      {
+        sessionId: "old",
+        trigger: "scheduled",
+        startedAt: 1,
+        events: [],
+      },
+      {
+        sessionId: "new",
+        trigger: "manual",
+        startedAt: 2,
+        events: [],
+      },
+    ]);
+
+    expect(sorted.map((log) => log.sessionId)).toEqual(["new", "old"]);
   });
 });
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteEntry,
   getReadingListEntries,
-  markAsReadAndNotify,
+  processEntryToMarkAsRead,
   processReadingListEntries,
   shouldDelete,
   shouldMarkAsRead,
@@ -104,6 +104,7 @@ const completeSettings: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: 60,
   maxEntriesPerDay: 2,
+  maxDebugSessionLogs: 10,
   alarmIntervalMinutes: 720,
   llmEndpoints: [
     {
@@ -229,7 +230,7 @@ describe("shouldDelete", () => {
   });
 });
 
-describe("markAsReadAndNotify", () => {
+describe("processEntryToMarkAsRead", () => {
   const entry = {
     url: "https://example.com/article",
     title: "テスト記事",
@@ -253,7 +254,7 @@ describe("markAsReadAndNotify", () => {
     );
     vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await markAsReadAndNotify(entry, completeSettings);
+    await processEntryToMarkAsRead(entry, completeSettings);
 
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
       url: entry.url,
@@ -280,6 +281,19 @@ describe("markAsReadAndNotify", () => {
       completeSettings.slackWebhookUrl,
       "formatted slack message",
     );
+    const updateEntryCallOrder =
+      mockChromeReadingList.updateEntry.mock.invocationCallOrder[0];
+    const slackNotificationCallOrder =
+      vi.mocked(mockPostToSlack).mock.invocationCallOrder[0];
+    expect(updateEntryCallOrder).toBeDefined();
+    expect(slackNotificationCallOrder).toBeDefined();
+    if (
+      updateEntryCallOrder === undefined ||
+      slackNotificationCallOrder === undefined
+    ) {
+      throw new Error("呼び出し順序を検証できませんでした");
+    }
+    expect(slackNotificationCallOrder).toBeLessThan(updateEntryCallOrder);
   });
 
   it("抽出失敗時は要約せずにSlackへエラー通知する", async () => {
@@ -290,7 +304,7 @@ describe("markAsReadAndNotify", () => {
     vi.mocked(mockFormatSlackErrorMessage).mockReturnValue("formatted error");
     vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await markAsReadAndNotify(entry, completeSettings);
+    await processEntryToMarkAsRead(entry, completeSettings);
 
     expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
       mode: "local-with-tavily-fallback",
@@ -309,6 +323,19 @@ describe("markAsReadAndNotify", () => {
       completeSettings.slackWebhookUrl,
       "formatted error",
     );
+    const updateEntryCallOrder =
+      mockChromeReadingList.updateEntry.mock.invocationCallOrder[0];
+    const slackNotificationCallOrder =
+      vi.mocked(mockPostToSlack).mock.invocationCallOrder[0];
+    expect(updateEntryCallOrder).toBeDefined();
+    expect(slackNotificationCallOrder).toBeDefined();
+    if (
+      updateEntryCallOrder === undefined ||
+      slackNotificationCallOrder === undefined
+    ) {
+      throw new Error("呼び出し順序を検証できませんでした");
+    }
+    expect(slackNotificationCallOrder).toBeLessThan(updateEntryCallOrder);
   });
 });
 
@@ -386,14 +413,39 @@ describe("processReadingListEntries", () => {
       url: "https://example.com/middle",
       hasBeenRead: true,
     });
-    expect(mockChromeStorageLocal.set).toHaveBeenNthCalledWith(1, {
+    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([{
       dailySummaryQuotaDate: "2099-01-01",
       dailySummaryQuotaCount: 1,
-    });
-    expect(mockChromeStorageLocal.set).toHaveBeenNthCalledWith(2, {
+    }]);
+    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([{
       dailySummaryQuotaDate: "2099-01-01",
       dailySummaryQuotaCount: 2,
-    });
+    }]);
+    const quotaUpdateCallOrder = mockChromeStorageLocal.set.mock.calls
+      .find(
+        ([value]) =>
+          value.dailySummaryQuotaDate === "2099-01-01" &&
+          value.dailySummaryQuotaCount === 1,
+      )
+      ? mockChromeStorageLocal.set.mock.invocationCallOrder[
+          mockChromeStorageLocal.set.mock.calls.findIndex(
+            ([value]) =>
+              value.dailySummaryQuotaDate === "2099-01-01" &&
+              value.dailySummaryQuotaCount === 1,
+          )
+        ]
+      : undefined;
+    const slackNotificationCallOrder =
+      vi.mocked(mockPostToSlack).mock.invocationCallOrder[0];
+    expect(quotaUpdateCallOrder).toBeDefined();
+    expect(slackNotificationCallOrder).toBeDefined();
+    if (
+      quotaUpdateCallOrder === undefined ||
+      slackNotificationCallOrder === undefined
+    ) {
+      throw new Error("呼び出し順序を検証できませんでした");
+    }
+    expect(slackNotificationCallOrder).toBeLessThan(quotaUpdateCallOrder);
     vi.useRealTimers();
   });
 
@@ -422,13 +474,16 @@ describe("processReadingListEntries", () => {
     ]);
     mockChromeReadingList.removeEntry.mockResolvedValue(undefined);
 
-    await processReadingListEntries();
+    await processReadingListEntries("manual");
 
     expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
     expect(mockChromeReadingList.removeEntry).toHaveBeenCalledWith({
       url: "https://example.com/read",
     });
-    expect(mockChromeStorageLocal.set).not.toHaveBeenCalled();
+    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([{
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 1,
+    }]);
     vi.useRealTimers();
   });
 
@@ -479,11 +534,14 @@ describe("processReadingListEntries", () => {
     await processReadingListEntries();
 
     expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
-    expect(mockChromeStorageLocal.set).not.toHaveBeenCalled();
+    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([{
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 3,
+    }]);
     vi.useRealTimers();
   });
 
-  it("既読化後の通知が失敗しても日次クォータは加算する", async () => {
+  it("Slack投稿失敗時は既読化せずクォータも加算しない", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2099-01-01T00:00:00Z"));
     setupMockStorage({
@@ -515,24 +573,11 @@ describe("processReadingListEntries", () => {
 
     await processReadingListEntries();
 
-    expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeStorageLocal.set).toHaveBeenCalledWith({
+    expect(mockChromeReadingList.updateEntry).not.toHaveBeenCalled();
+    expect(mockChromeStorageLocal.set.mock.calls).not.toContainEqual([{
       dailySummaryQuotaDate: "2099-01-01",
       dailySummaryQuotaCount: 1,
-    });
-    const quotaUpdateCallOrder =
-      mockChromeStorageLocal.set.mock.invocationCallOrder[0];
-    const slackNotificationCallOrder =
-      vi.mocked(mockPostToSlack).mock.invocationCallOrder[0];
-    expect(quotaUpdateCallOrder).toBeDefined();
-    expect(slackNotificationCallOrder).toBeDefined();
-    if (
-      quotaUpdateCallOrder === undefined ||
-      slackNotificationCallOrder === undefined
-    ) {
-      throw new Error("呼び出し順序を検証できませんでした");
-    }
-    expect(quotaUpdateCallOrder).toBeLessThan(slackNotificationCallOrder);
+    }]);
     vi.useRealTimers();
   });
 
@@ -575,7 +620,10 @@ describe("processReadingListEntries", () => {
 
     expect(mockChromeReadingList.query).toHaveBeenCalledTimes(1);
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledTimes(1);
-    expect(mockChromeStorageLocal.set).toHaveBeenCalledTimes(1);
+    expect(mockChromeStorageLocal.set.mock.calls).toContainEqual([{
+      dailySummaryQuotaDate: "2099-01-01",
+      dailySummaryQuotaCount: 1,
+    }]);
     vi.useRealTimers();
   });
 });

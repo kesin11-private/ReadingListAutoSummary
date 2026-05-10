@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_SETTINGS,
+  appendSessionLogEvent,
+  completeSessionLog,
+  generateSessionId,
   getDailySummaryQuotaState,
+  getAllSessionLogs,
   getSettings,
   incrementDailySummaryQuotaCount,
+  pruneSessionLogs,
+  startSessionLog,
   type Settings,
   saveSettings,
   setDailySummaryQuotaState,
+  type SessionLog,
   type ValidatedSettings,
   validateSettings,
 } from "../../src/common/chrome_storage";
@@ -65,6 +72,7 @@ describe("chrome_storage", () => {
         "daysUntilRead",
         "daysUntilDelete",
         "maxEntriesPerDay",
+        "maxDebugSessionLogs",
         "maxEntriesPerRun",
         "alarmIntervalMinutes",
         "llmEndpoints",
@@ -86,6 +94,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 45,
         daysUntilDelete: 90,
         maxEntriesPerDay: 5,
+        maxDebugSessionLogs: 12,
         alarmIntervalMinutes: 120,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
@@ -165,6 +174,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerDay: 7,
+        maxDebugSessionLogs: 8,
         alarmIntervalMinutes: 15,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
@@ -186,6 +196,7 @@ describe("chrome_storage", () => {
         daysUntilRead: 20,
         daysUntilDelete: 40,
         maxEntriesPerDay: 7,
+        maxDebugSessionLogs: 8,
         alarmIntervalMinutes: 15,
         ...validLlmSettings,
         slackWebhookUrl: "https://hooks.slack.com/services/test",
@@ -232,6 +243,7 @@ describe("chrome_storage", () => {
       daysUntilRead: 30,
       daysUntilDelete: 60,
       maxEntriesPerDay: 5,
+      maxDebugSessionLogs: 10,
       alarmIntervalMinutes: 720,
       contentExtractorProvider: "local-with-tavily-fallback",
       tavilyApiKey: "tv-test",
@@ -324,6 +336,12 @@ describe("chrome_storage", () => {
           maxEntriesPerDay: 0,
         }).errors,
       ).toContain("1日に要約する最大エントリ数は1-100の整数で入力してください");
+      expect(
+        validateSettings({
+          ...baseSettings,
+          maxDebugSessionLogs: 0,
+        }).errors,
+      ).toContain("保持するデバッグログ数は1-100の整数で入力してください");
       expect(
         validateSettings({
           ...baseSettings,
@@ -429,6 +447,108 @@ describe("chrome_storage", () => {
         date: "2026-04-24",
         count: 2,
       });
+    });
+  });
+
+  describe("session logs", () => {
+    function setupSessionLogStorage(
+      initialValues: Record<string, unknown> = {},
+    ): Record<string, unknown> {
+      const storedValues: Record<string, unknown> = {
+        ...initialValues,
+      };
+
+      mockChromeStorage.local.get.mockImplementation(async (keys?: string[]) => {
+        if (!Array.isArray(keys)) {
+          return storedValues;
+        }
+
+        return Object.fromEntries(
+          keys.flatMap((key) =>
+            storedValues[key] === undefined ? [] : [[key, storedValues[key]]],
+          ),
+        );
+      });
+      mockChromeStorage.local.set.mockImplementation(
+        async (values: Record<string, unknown>) => {
+          Object.assign(storedValues, values);
+        },
+      );
+      mockChromeStorage.local.remove.mockImplementation(async (keys: string[]) => {
+        for (const key of keys) {
+          delete storedValues[key];
+        }
+      });
+
+      return storedValues;
+    }
+
+    it("generateSessionId は YYYYMMdd-HHmmss 形式で返す", () => {
+      expect(generateSessionId(new Date("2026-05-10T14:30:22"))).toBe(
+        "20260510-143022",
+      );
+    });
+
+    it("start -> append -> complete でセッションログを記録できる", async () => {
+      const storedValues = setupSessionLogStorage();
+
+      const log = await startSessionLog("20260510-143022", "manual");
+      await appendSessionLogEvent("20260510-143022", {
+        type: "entry-start",
+        timestamp: 2,
+        entryUrl: "https://example.com",
+        entryTitle: "Example",
+      });
+      await completeSessionLog("20260510-143022");
+
+      expect(log.sessionId).toBe("20260510-143022");
+      expect(storedValues.sessionLogIndex).toEqual(["20260510-143022"]);
+      const sessionLog = storedValues["sessionLog:20260510-143022"] as SessionLog;
+      expect(sessionLog.trigger).toBe("manual");
+      expect(sessionLog.completedAt).toBeTypeOf("number");
+      expect(sessionLog.events.map((event) => event.type)).toEqual([
+        "session-start",
+        "entry-start",
+        "session-complete",
+      ]);
+    });
+
+    it("pruneSessionLogs は保持件数を超えた古いログを削除する", async () => {
+      const storedValues = setupSessionLogStorage({
+        sessionLogIndex: ["1", "2", "3"],
+        "sessionLog:1": { sessionId: "1", trigger: "scheduled", startedAt: 1, events: [] },
+        "sessionLog:2": { sessionId: "2", trigger: "scheduled", startedAt: 2, events: [] },
+        "sessionLog:3": { sessionId: "3", trigger: "scheduled", startedAt: 3, events: [] },
+      });
+
+      await pruneSessionLogs(2);
+
+      expect(storedValues.sessionLogIndex).toEqual(["2", "3"]);
+      expect(storedValues["sessionLog:1"]).toBeUndefined();
+      expect(storedValues["sessionLog:2"]).toBeDefined();
+      expect(storedValues["sessionLog:3"]).toBeDefined();
+    });
+
+    it("getAllSessionLogs はインデックス順ですべて返す", async () => {
+      setupSessionLogStorage({
+        sessionLogIndex: ["old", "new"],
+        "sessionLog:old": {
+          sessionId: "old",
+          trigger: "scheduled",
+          startedAt: 1,
+          events: [],
+        },
+        "sessionLog:new": {
+          sessionId: "new",
+          trigger: "manual",
+          startedAt: 2,
+          events: [],
+        },
+      });
+
+      const logs = await getAllSessionLogs();
+
+      expect(logs.map((log) => log.sessionId)).toEqual(["old", "new"]);
     });
   });
 });
