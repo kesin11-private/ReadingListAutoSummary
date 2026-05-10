@@ -47,7 +47,7 @@ function getErrorMessage(error: unknown): string {
 
 let activeReadingListProcessing: Promise<void> | null = null;
 
-class SessionLogger {
+export class SessionLogger {
   private constructor(private readonly sessionId: string | null) {}
 
   static async create(trigger: SessionTrigger): Promise<SessionLogger> {
@@ -57,7 +57,7 @@ class SessionLogger {
       await startSessionLog(sessionId, trigger);
       return new SessionLogger(sessionId);
     } catch (error) {
-      console.error("セッションログ開始エラー:", error);
+      console.error(`セッションログ開始エラー (trigger: ${trigger}):`, error);
       return new SessionLogger(null);
     }
   }
@@ -74,7 +74,10 @@ class SessionLogger {
     try {
       await appendSessionLogEvent(this.sessionId, event);
     } catch (error) {
-      console.error("セッションログ追記エラー:", error);
+      console.error(
+        `セッションログ追記エラー (session: ${this.sessionId}, type: ${event.type}):`,
+        error,
+      );
     }
   }
 
@@ -109,10 +112,16 @@ class SessionLogger {
     }
 
     await completeSessionLog(this.sessionId).catch((error) => {
-      console.error("セッションログ完了エラー:", error);
+      console.error(
+        `セッションログ完了エラー (session: ${this.sessionId}):`,
+        error,
+      );
     });
     await pruneSessionLogs(maxDebugSessionLogs).catch((error) => {
-      console.error("セッションログ削除エラー:", error);
+      console.error(
+        `セッションログ削除エラー (session: ${this.sessionId}, max: ${maxDebugSessionLogs}):`,
+        error,
+      );
     });
   }
 
@@ -438,20 +447,20 @@ async function processContentExtraction(
     await notifyExtractionError(
       entry,
       settings,
-      `${extractResult.error} (${extractionSummary})`,
       sessionLogger,
+      `${extractResult.error} (${extractionSummary})`,
     );
     return;
   }
 
-  await sessionLogger.appendStep(
-    entry,
-    "extract",
-    true,
-    extractionSummary,
-  );
+  await sessionLogger.appendStep(entry, "extract", true, extractionSummary);
   console.log(`本文抽出成功: ${entry.title} (${extractionSummary})`);
-  await processSummarization(entry, extractResult.content, settings, sessionLogger);
+  await processSummarization(
+    entry,
+    extractResult.content,
+    settings,
+    sessionLogger,
+  );
 }
 
 /**
@@ -563,7 +572,7 @@ async function markEntryAsRead(
 export async function processEntryToMarkAsRead(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
-  sessionLogger: SessionLogger = SessionLogger.noop(),
+  sessionLogger: SessionLogger,
 ): Promise<boolean> {
   try {
     await processContentExtraction(entry, settings, sessionLogger);
@@ -619,8 +628,8 @@ export async function processEntryToMarkAsRead(
 async function notifyExtractionError(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
+  sessionLogger: SessionLogger,
   error?: string,
-  sessionLogger: SessionLogger = SessionLogger.noop(),
 ): Promise<void> {
   const selectedModel = getSelectedLlmModel(settings);
 

@@ -4,6 +4,7 @@ import {
   getReadingListEntries,
   processEntryToMarkAsRead,
   processReadingListEntries,
+  SessionLogger,
   shouldDelete,
   shouldMarkAsRead,
 } from "../../src/backend/background";
@@ -254,7 +255,11 @@ describe("processEntryToMarkAsRead", () => {
     );
     vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await processEntryToMarkAsRead(entry, completeSettings);
+    await processEntryToMarkAsRead(
+      entry,
+      completeSettings,
+      SessionLogger.noop(),
+    );
 
     expect(mockChromeReadingList.updateEntry).toHaveBeenCalledWith({
       url: entry.url,
@@ -304,7 +309,11 @@ describe("processEntryToMarkAsRead", () => {
     vi.mocked(mockFormatSlackErrorMessage).mockReturnValue("formatted error");
     vi.mocked(mockPostToSlack).mockResolvedValue();
 
-    await processEntryToMarkAsRead(entry, completeSettings);
+    await processEntryToMarkAsRead(
+      entry,
+      completeSettings,
+      SessionLogger.noop(),
+    );
 
     expect(mockExtractContent).toHaveBeenCalledWith(entry.url, {
       mode: "local-with-tavily-fallback",
