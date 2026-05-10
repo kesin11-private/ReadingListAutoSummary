@@ -4,11 +4,11 @@ import {
   getReadingListEntries,
   processEntryToMarkAsRead,
   processReadingListEntries,
-  SessionLogger,
   shouldDelete,
   shouldMarkAsRead,
 } from "../../src/backend/background";
 import type { ExtractContentResult } from "../../src/backend/content_extractor";
+import { SessionLogger } from "../../src/backend/session_logger";
 import {
   DELETION_DISABLED_VALUE,
   type Settings,

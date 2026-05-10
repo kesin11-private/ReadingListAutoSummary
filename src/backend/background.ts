@@ -1,18 +1,11 @@
 import {
-  appendSessionLogEvent,
-  completeSessionLog,
   DEFAULT_SYSTEM_PROMPT,
   DELETION_DISABLED_VALUE,
-  generateSessionId,
   getDailySummaryQuotaState,
   getSettings,
   incrementDailySummaryQuotaCount,
-  pruneSessionLogs,
-  type SessionLogEvent,
-  type SessionLogStep,
   type SessionTrigger,
   type Settings,
-  startSessionLog,
 } from "../common/chrome_storage";
 import {
   getSelectedLlmEndpoint,
@@ -32,6 +25,7 @@ import {
   summarizeExtractionResult,
 } from "./content_extractor";
 import { postToSlack } from "./post";
+import { SessionLogger } from "./session_logger";
 import {
   formatSlackErrorMessage,
   formatSlackMessage,
@@ -46,93 +40,6 @@ function getErrorMessage(error: unknown): string {
 }
 
 let activeReadingListProcessing: Promise<void> | null = null;
-
-export class SessionLogger {
-  private constructor(private readonly sessionId: string | null) {}
-
-  static async create(trigger: SessionTrigger): Promise<SessionLogger> {
-    const sessionId = generateSessionId();
-
-    try {
-      await startSessionLog(sessionId, trigger);
-      return new SessionLogger(sessionId);
-    } catch (error) {
-      console.error(`セッションログ開始エラー (trigger: ${trigger}):`, error);
-      return new SessionLogger(null);
-    }
-  }
-
-  static noop(): SessionLogger {
-    return new SessionLogger(null);
-  }
-
-  async appendEvent(event: SessionLogEvent): Promise<void> {
-    if (!this.sessionId) {
-      return;
-    }
-
-    try {
-      await appendSessionLogEvent(this.sessionId, event);
-    } catch (error) {
-      console.error(
-        `セッションログ追記エラー (session: ${this.sessionId}, type: ${event.type}):`,
-        error,
-      );
-    }
-  }
-
-  async appendStep(
-    entry: chrome.readingList.ReadingListEntry,
-    step: SessionLogStep,
-    success: boolean,
-    detail?: string,
-  ): Promise<void> {
-    await this.appendEvent({
-      type: success ? "step-success" : "step-failure",
-      timestamp: Date.now(),
-      entryUrl: entry.url,
-      entryTitle: entry.title,
-      step,
-      ...(detail ? { detail } : {}),
-    });
-  }
-
-  async startEntry(entry: chrome.readingList.ReadingListEntry): Promise<void> {
-    await this.appendEvent({
-      type: "entry-start",
-      timestamp: Date.now(),
-      entryUrl: entry.url,
-      entryTitle: entry.title,
-    });
-  }
-
-  async complete(maxDebugSessionLogs: number): Promise<void> {
-    if (!this.sessionId) {
-      return;
-    }
-
-    await completeSessionLog(this.sessionId).catch((error) => {
-      console.error(
-        `セッションログ完了エラー (session: ${this.sessionId}):`,
-        error,
-      );
-    });
-    await pruneSessionLogs(maxDebugSessionLogs).catch((error) => {
-      console.error(
-        `セッションログ削除エラー (session: ${this.sessionId}, max: ${maxDebugSessionLogs}):`,
-        error,
-      );
-    });
-  }
-
-  async sessionError(error: unknown): Promise<void> {
-    await this.appendEvent({
-      type: "session-error",
-      timestamp: Date.now(),
-      detail: getErrorMessage(error),
-    });
-  }
-}
 
 function createExtractFailureResult(error: unknown): ExtractContentResult {
   return {
@@ -435,14 +342,11 @@ async function processContentExtraction(
   const extractionSummary = summarizeExtractionResult(extractResult);
 
   if (!extractResult.success) {
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "extract",
-      false,
-      `${extractResult.error} (${extractionSummary})`,
-    );
-    console.error(
-      `本文抽出失敗: ${entry.title} (${extractionSummary}) - ${extractResult.error}`,
+      `本文抽出失敗: ${entry.title} (${extractionSummary})`,
+      extractResult.error,
     );
     await notifyExtractionError(
       entry,
@@ -453,8 +357,11 @@ async function processContentExtraction(
     return;
   }
 
-  await sessionLogger.appendStep(entry, "extract", true, extractionSummary);
-  console.log(`本文抽出成功: ${entry.title} (${extractionSummary})`);
+  await sessionLogger.logSuccess(
+    entry,
+    "extract",
+    `本文抽出成功: ${entry.title} (${extractionSummary})`,
+  );
   await processSummarization(
     entry,
     extractResult.content,
@@ -482,20 +389,17 @@ async function processSummarization(
         error || "LLM設定の解決に失敗しました。",
       );
     }
-    console.warn(
-      "LLM設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
-    );
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "summarize",
-      false,
-      error || "LLM設定またはSlack設定が不完全のためスキップしました。",
+      `要約をスキップ: ${entry.title} (${
+        error || "LLM設定またはSlack設定が不完全です。"
+      })`,
     );
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "post-slack",
-      false,
-      "LLM設定またはSlack設定が不完全のためスキップしました。",
+      `Slack投稿をスキップ: ${entry.title} (LLM設定またはSlack設定が不完全です。)`,
     );
     return;
   }
@@ -511,14 +415,20 @@ async function processSummarization(
     error: getErrorMessage(summarizeError),
   }));
 
-  await sessionLogger.appendStep(
-    entry,
-    "summarize",
-    summarizeResult.success,
-    summarizeResult.success
-      ? `model=${llmConfig.modelName}`
-      : summarizeResult.error || "不明なエラー",
-  );
+  if (summarizeResult.success) {
+    await sessionLogger.logSuccess(
+      entry,
+      "summarize",
+      `要約成功: ${entry.title} (model=${llmConfig.modelName})`,
+    );
+  } else {
+    await sessionLogger.logFailure(
+      entry,
+      "summarize",
+      `要約失敗: ${entry.title}`,
+      summarizeResult.error,
+    );
+  }
 
   const slackMessage =
     summarizeResult.success && summarizeResult.summary
@@ -537,20 +447,19 @@ async function processSummarization(
 
   try {
     await postToSlack(settings.slackWebhookUrl, slackMessage);
-    await sessionLogger.appendStep(
+    await sessionLogger.logSuccess(
       entry,
       "post-slack",
-      true,
       summarizeResult.success
-        ? "要約を投稿しました"
-        : "エラー通知を投稿しました",
+        ? `Slack投稿成功: ${entry.title}`
+        : `Slackエラー通知投稿成功: ${entry.title}`,
     );
   } catch (error) {
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "post-slack",
-      false,
-      getErrorMessage(error),
+      `Slack投稿失敗: ${entry.title}`,
+      error,
     );
     throw error;
   }
@@ -583,39 +492,35 @@ export async function processEntryToMarkAsRead(
 
   try {
     await incrementDailySummaryQuotaCount();
-    await sessionLogger.appendStep(
+    await sessionLogger.logSuccess(
       entry,
       "increment-quota",
-      true,
-      "日次クォータを加算しました",
+      `日次クォータ加算完了: ${entry.title}`,
     );
   } catch (error) {
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "increment-quota",
-      false,
-      getErrorMessage(error),
+      `日次クォータ加算失敗: ${entry.title}`,
+      error,
     );
-    console.error(`クォータ更新失敗: ${entry.title}`, error);
     return false;
   }
 
   try {
     await markEntryAsRead(entry);
-    await sessionLogger.appendStep(
+    await sessionLogger.logSuccess(
       entry,
       "mark-as-read",
-      true,
-      "既読化しました",
+      `既読化完了: ${entry.title}`,
     );
   } catch (error) {
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "mark-as-read",
-      false,
-      getErrorMessage(error),
+      `既読化失敗: ${entry.title}`,
+      error,
     );
-    console.error(`既読化処理失敗: ${entry.title}`, error);
     return false;
   }
 
@@ -634,11 +539,10 @@ async function notifyExtractionError(
   const selectedModel = getSelectedLlmModel(settings);
 
   if (!settings.slackWebhookUrl || !selectedModel?.modelName.trim()) {
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "post-slack",
-      false,
-      "Slack設定またはモデル設定が不完全のためエラー通知をスキップしました。",
+      `Slackエラー通知をスキップ: ${entry.title} (Slack設定またはモデル設定が不完全です。)`,
     );
     return;
   }
@@ -651,18 +555,17 @@ async function notifyExtractionError(
   );
   try {
     await postToSlack(settings.slackWebhookUrl, errorMessage);
-    await sessionLogger.appendStep(
+    await sessionLogger.logSuccess(
       entry,
       "post-slack",
-      true,
-      "本文抽出エラーを投稿しました",
+      `本文抽出エラー通知のSlack投稿成功: ${entry.title}`,
     );
   } catch (postError) {
-    await sessionLogger.appendStep(
+    await sessionLogger.logFailure(
       entry,
       "post-slack",
-      false,
-      getErrorMessage(postError),
+      `本文抽出エラー通知のSlack投稿失敗: ${entry.title}`,
+      postError,
     );
     throw postError;
   }
@@ -758,7 +661,7 @@ async function processReadingListEntriesInternal(
 
     // 既読化処理
     for (const entry of entriesToMarkAsRead) {
-      await sessionLogger.startEntry(entry);
+      await sessionLogger.logEntryStart(entry);
       const didMarkAsRead = await processEntryToMarkAsRead(
         entry,
         resolvedSettings,
@@ -781,8 +684,10 @@ async function processReadingListEntriesInternal(
     await sessionLogger.complete(resolvedSettings.maxDebugSessionLogs ?? 10);
     console.log("リーディングリスト処理完了");
   } catch (error) {
-    await sessionLogger.sessionError(error);
-    console.error("リーディングリスト処理でエラーが発生:", error);
+    await sessionLogger.logError(
+      "リーディングリスト処理でエラーが発生:",
+      error,
+    );
   }
 }
 
