@@ -5,7 +5,9 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
   DELETION_DISABLED_VALUE,
+  getAllSessionLogs,
   getSettings,
+  type SessionLog,
   type Settings,
   saveSettings as saveSettingsToStorage,
   validateSettings,
@@ -127,6 +129,26 @@ function getSaveStatusClassName(saveStatus: SaveStatus): string {
 
 function toNumber(value: string): number {
   return Number(value);
+}
+
+export function sortSessionLogsForUi(logs: SessionLog[]): SessionLog[] {
+  return [...logs].sort((left, right) => right.startedAt - left.startedAt);
+}
+
+function formatSessionTriggerLabel(trigger: SessionLog["trigger"]): string {
+  return trigger === "manual" ? "手動" : "定期";
+}
+
+function formatSessionStatus(log: SessionLog): string {
+  return log.completedAt ? "完了" : "中断";
+}
+
+function formatTimestamp(timestamp?: number): string {
+  if (timestamp === undefined) {
+    return "-";
+  }
+
+  return new Date(timestamp).toLocaleString("ja-JP");
 }
 
 export function formatSettingsForUi(settings: Settings): Settings {
@@ -308,6 +330,11 @@ export function App(): JSX.Element {
   const [saveMessage, setSaveMessage] = useState("");
   const [isManualRunning, setIsManualRunning] = useState(false);
   const [manualMessage, setManualMessage] = useState<string | null>(null);
+  const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(
+    null,
+  );
 
   async function loadSettings(): Promise<void> {
     try {
@@ -319,6 +346,19 @@ export function App(): JSX.Element {
       setSaveMessage("設定の読み込みに失敗しました。");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function loadSessionLogs(): Promise<void> {
+    setIsLoadingLogs(true);
+
+    try {
+      const logs = await getAllSessionLogs();
+      setSessionLogs(sortSessionLogsForUi(logs));
+    } catch (error) {
+      console.error("セッションログ読み込みエラー:", error);
+    } finally {
+      setIsLoadingLogs(false);
     }
   }
 
@@ -360,7 +400,8 @@ export function App(): JSX.Element {
   }
 
   useEffect(() => {
-    loadSettings();
+    void loadSettings();
+    void loadSessionLogs();
   }, []);
 
   function handleInputChange(
@@ -941,6 +982,36 @@ export function App(): JSX.Element {
           </div>
         </section>
 
+        <section class="bg-gray-50 p-4 rounded-lg">
+          <h2 class="text-lg font-semibold mb-4">デバッグログ</h2>
+
+          <div>
+            <label
+              for="maxDebugSessionLogs"
+              class="block text-sm font-medium text-gray-700 mb-1"
+            >
+              保持するセッションログ数
+            </label>
+            <input
+              id="maxDebugSessionLogs"
+              type="number"
+              min="1"
+              max="100"
+              value={settings.maxDebugSessionLogs ?? 10}
+              onInput={(e) =>
+                handleInputChange(
+                  "maxDebugSessionLogs",
+                  toNumber((e.target as HTMLInputElement).value),
+                )
+              }
+              class="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+              完了したセッションログをこの件数まで保持します。
+            </p>
+          </div>
+        </section>
+
         <div class="flex items-center gap-4">
           <button
             type="submit"
@@ -959,6 +1030,104 @@ export function App(): JSX.Element {
 
         <ContentExtractorTest provider={selectedProvider} />
       </form>
+
+      <section class="mt-8 bg-gray-50 p-4 rounded-lg">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-lg font-semibold">セッションログ</h2>
+            <p class="text-xs text-gray-500 mt-1">
+              新しいセッションから順に表示します。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadSessionLogs()}
+            disabled={isLoadingLogs}
+            class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoadingLogs ? "更新中..." : "ログを更新"}
+          </button>
+        </div>
+
+        {sessionLogs.length === 0 ? (
+          <p class="text-sm text-gray-500">
+            保存されたセッションログはありません。
+          </p>
+        ) : (
+          <div class="space-y-3">
+            {sessionLogs.map((sessionLog) => {
+              const isExpanded = expandedSessionId === sessionLog.sessionId;
+
+              return (
+                <article
+                  key={sessionLog.sessionId}
+                  class="border border-gray-200 rounded-md bg-white"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedSessionId((prev) =>
+                        prev === sessionLog.sessionId
+                          ? null
+                          : sessionLog.sessionId,
+                      )
+                    }
+                    class="w-full text-left px-4 py-3 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div class="font-medium">{sessionLog.sessionId}</div>
+                      <div class="text-xs text-gray-500 mt-1">
+                        {formatSessionTriggerLabel(sessionLog.trigger)} /{" "}
+                        {formatSessionStatus(sessionLog)} / 開始{" "}
+                        {formatTimestamp(sessionLog.startedAt)}
+                      </div>
+                    </div>
+                    <span class="text-sm text-indigo-600">
+                      {isExpanded ? "閉じる" : "詳細"}
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div class="border-t border-gray-200 px-4 py-3 space-y-2">
+                      <div class="text-xs text-gray-500">
+                        完了時刻: {formatTimestamp(sessionLog.completedAt)}
+                      </div>
+                      <ul class="space-y-2">
+                        {sessionLog.events.map((event, index) => (
+                          <li
+                            key={`${sessionLog.sessionId}-${event.timestamp}-${index}`}
+                            class="text-sm border border-gray-100 rounded-md px-3 py-2"
+                          >
+                            <div class="font-medium">
+                              {formatTimestamp(event.timestamp)} / {event.type}
+                              {event.step ? ` / ${event.step}` : ""}
+                            </div>
+                            {(event.entryTitle ||
+                              event.entryUrl ||
+                              event.detail) && (
+                              <div class="text-xs text-gray-600 mt-1 whitespace-pre-wrap">
+                                {event.entryTitle && (
+                                  <div>title: {event.entryTitle}</div>
+                                )}
+                                {event.entryUrl && (
+                                  <div>url: {event.entryUrl}</div>
+                                )}
+                                {event.detail && (
+                                  <div>detail: {event.detail}</div>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </main>
   );
 }

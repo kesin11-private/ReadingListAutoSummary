@@ -60,7 +60,7 @@ export function initializeAlarmHandlers(): void {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
       console.log("定期処理アラームが発火しました");
-      processReadingListEntries();
+      processReadingListEntries("scheduled");
     }
   });
 }

@@ -14,6 +14,7 @@ export interface Settings {
   daysUntilRead: number;
   daysUntilDelete: number;
   maxEntriesPerDay?: number;
+  maxDebugSessionLogs?: number;
   alarmIntervalMinutes?: number;
   llmEndpoints: LlmEndpointConfig[];
   llmModels: LlmModelConfig[];
@@ -27,6 +28,37 @@ export interface Settings {
 
 export type ValidatedSettings = Settings & { readonly validated: true };
 
+export type SessionTrigger = "scheduled" | "manual";
+export type SessionLogStep =
+  | "extract"
+  | "summarize"
+  | "post-slack"
+  | "mark-as-read"
+  | "increment-quota";
+
+export interface SessionLogEvent {
+  type:
+    | "session-start"
+    | "entry-start"
+    | "step-success"
+    | "step-failure"
+    | "session-complete"
+    | "session-error";
+  timestamp: number;
+  entryUrl?: string;
+  entryTitle?: string;
+  step?: SessionLogStep;
+  detail?: string;
+}
+
+export interface SessionLog {
+  sessionId: string;
+  trigger: SessionTrigger;
+  startedAt: number;
+  completedAt?: number;
+  events: SessionLogEvent[];
+}
+
 type StoredLlmSettings = Pick<
   Settings,
   "llmEndpoints" | "llmModels" | "selectedLlmEndpointId" | "selectedLlmModelId"
@@ -36,6 +68,7 @@ interface StoredSettings extends Record<string, unknown> {
   daysUntilRead?: unknown;
   daysUntilDelete?: unknown;
   maxEntriesPerDay?: unknown;
+  maxDebugSessionLogs?: unknown;
   maxEntriesPerRun?: unknown;
   alarmIntervalMinutes?: unknown;
   llmEndpoints?: unknown;
@@ -55,6 +88,7 @@ const SETTINGS_STORAGE_KEYS = [
   "daysUntilRead",
   "daysUntilDelete",
   "maxEntriesPerDay",
+  "maxDebugSessionLogs",
   "maxEntriesPerRun",
   "alarmIntervalMinutes",
   "llmEndpoints",
@@ -111,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   daysUntilRead: 30,
   daysUntilDelete: DELETION_DISABLED_VALUE,
   maxEntriesPerDay: 3,
+  maxDebugSessionLogs: 10,
   alarmIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
   llmEndpoints: [],
   llmModels: [],
@@ -120,10 +155,14 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const DEFAULT_MAX_ENTRIES_PER_DAY = DEFAULT_SETTINGS.maxEntriesPerDay ?? 3;
+const DEFAULT_MAX_DEBUG_SESSION_LOGS =
+  DEFAULT_SETTINGS.maxDebugSessionLogs ?? 10;
 const DEFAULT_ALARM_INTERVAL_MINUTES =
   DEFAULT_SETTINGS.alarmIntervalMinutes ?? DEFAULT_INTERVAL_MINUTES;
 const DAILY_SUMMARY_QUOTA_DATE_KEY = "dailySummaryQuotaDate";
 const DAILY_SUMMARY_QUOTA_COUNT_KEY = "dailySummaryQuotaCount";
+const SESSION_LOG_INDEX_KEY = "sessionLogIndex";
+const SESSION_LOG_KEY_PREFIX = "sessionLog:";
 
 export interface DailySummaryQuotaState {
   date: string;
@@ -147,6 +186,16 @@ function getNumberValue(value: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isSessionLog(value: unknown): value is SessionLog {
+  return (
+    isRecord(value) &&
+    typeof value.sessionId === "string" &&
+    (value.trigger === "scheduled" || value.trigger === "manual") &&
+    typeof value.startedAt === "number" &&
+    Array.isArray(value.events)
+  );
 }
 
 function parseStoredArray<T>(
@@ -287,7 +336,7 @@ const REMOVABLE_OPTIONAL_KEYS = [
 function addOptionalSetting(
   settingsToSave: SettingsToSave,
   key: string,
-  value: string | ContentExtractorProvider | undefined,
+  value: string | number | ContentExtractorProvider | undefined,
 ): void {
   if (value !== undefined) {
     settingsToSave[key] = value;
@@ -315,6 +364,8 @@ function createSettingsToSave(settings: Settings): SettingsToSave {
     daysUntilRead: settings.daysUntilRead,
     daysUntilDelete: settings.daysUntilDelete,
     maxEntriesPerDay: settings.maxEntriesPerDay ?? DEFAULT_MAX_ENTRIES_PER_DAY,
+    maxDebugSessionLogs:
+      settings.maxDebugSessionLogs ?? DEFAULT_MAX_DEBUG_SESSION_LOGS,
     alarmIntervalMinutes:
       settings.alarmIntervalMinutes ?? DEFAULT_ALARM_INTERVAL_MINUTES,
     llmEndpoints: settings.llmEndpoints,
@@ -416,6 +467,9 @@ export async function getSettings(): Promise<Settings> {
         getNumberValue(result.daysUntilDelete) ??
         DEFAULT_SETTINGS.daysUntilDelete,
       maxEntriesPerDay: await resolveMaxEntriesPerDay(result),
+      maxDebugSessionLogs:
+        getNumberValue(result.maxDebugSessionLogs) ??
+        DEFAULT_MAX_DEBUG_SESSION_LOGS,
       alarmIntervalMinutes:
         getNumberValue(result.alarmIntervalMinutes) ??
         DEFAULT_ALARM_INTERVAL_MINUTES,
@@ -503,6 +557,144 @@ export async function incrementDailySummaryQuotaCount(
 
   await setDailySummaryQuotaState(nextState);
   return nextState;
+}
+
+function getSessionLogStorageKey(sessionId: string): string {
+  return `${SESSION_LOG_KEY_PREFIX}${sessionId}`;
+}
+
+async function getSessionLogIndex(): Promise<string[]> {
+  const result = (await chrome.storage.local.get([
+    SESSION_LOG_INDEX_KEY,
+  ])) as Record<string, unknown>;
+  const index = result[SESSION_LOG_INDEX_KEY];
+  if (!Array.isArray(index)) {
+    return [];
+  }
+
+  return index.filter((value): value is string => typeof value === "string");
+}
+
+export function generateSessionId(date: Date = new Date()): string {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+export async function startSessionLog(
+  sessionId: string,
+  trigger: SessionTrigger,
+): Promise<SessionLog> {
+  const startedAt = Date.now();
+  const sessionLog: SessionLog = {
+    sessionId,
+    trigger,
+    startedAt,
+    events: [
+      {
+        type: "session-start",
+        timestamp: startedAt,
+      },
+    ],
+  };
+  const index = await getSessionLogIndex();
+  const nextIndex = index.includes(sessionId) ? index : [...index, sessionId];
+
+  await chrome.storage.local.set({
+    [SESSION_LOG_INDEX_KEY]: nextIndex,
+    [getSessionLogStorageKey(sessionId)]: sessionLog,
+  });
+
+  return sessionLog;
+}
+
+export async function appendSessionLogEvent(
+  sessionId: string,
+  event: SessionLogEvent,
+): Promise<void> {
+  const storageKey = getSessionLogStorageKey(sessionId);
+  const result = (await chrome.storage.local.get([storageKey])) as Record<
+    string,
+    unknown
+  >;
+  const sessionLog = result[storageKey];
+  if (!isSessionLog(sessionLog)) {
+    return;
+  }
+
+  await chrome.storage.local.set({
+    [storageKey]: {
+      ...sessionLog,
+      events: [...sessionLog.events, event],
+    },
+  });
+}
+
+export async function completeSessionLog(sessionId: string): Promise<void> {
+  const storageKey = getSessionLogStorageKey(sessionId);
+  const result = (await chrome.storage.local.get([storageKey])) as Record<
+    string,
+    unknown
+  >;
+  const sessionLog = result[storageKey];
+  if (!isSessionLog(sessionLog)) {
+    return;
+  }
+
+  const completedAt = Date.now();
+  await chrome.storage.local.set({
+    [storageKey]: {
+      ...sessionLog,
+      completedAt,
+      events: [
+        ...sessionLog.events,
+        {
+          type: "session-complete",
+          timestamp: completedAt,
+        },
+      ],
+    },
+  });
+}
+
+export async function pruneSessionLogs(maxSessions: number): Promise<void> {
+  const index = await getSessionLogIndex();
+  if (index.length <= maxSessions) {
+    return;
+  }
+
+  const sessionIdsToRemove = index.slice(0, index.length - maxSessions);
+  await chrome.storage.local.remove(
+    sessionIdsToRemove.map((sessionId) => getSessionLogStorageKey(sessionId)),
+  );
+  await chrome.storage.local.set({
+    [SESSION_LOG_INDEX_KEY]: index.slice(-maxSessions),
+  });
+}
+
+export async function getAllSessionLogs(): Promise<SessionLog[]> {
+  const index = await getSessionLogIndex();
+  if (index.length === 0) {
+    return [];
+  }
+
+  const storageKeys = index.map((sessionId) =>
+    getSessionLogStorageKey(sessionId),
+  );
+  const result = (await chrome.storage.local.get(storageKeys)) as Record<
+    string,
+    unknown
+  >;
+
+  return index.flatMap((sessionId) => {
+    const sessionLog = result[getSessionLogStorageKey(sessionId)];
+    return isSessionLog(sessionLog) ? [sessionLog] : [];
+  });
 }
 
 function validateLlmSettings(
@@ -617,6 +809,16 @@ export function validateSettings(settings: Partial<Settings>): {
     errors.push("1日に要約する最大エントリ数は1-100の整数で入力してください");
   }
 
+  const maxDebugSessionLogs =
+    normalizedSettings.maxDebugSessionLogs ?? DEFAULT_MAX_DEBUG_SESSION_LOGS;
+  if (
+    !Number.isInteger(maxDebugSessionLogs) ||
+    maxDebugSessionLogs < 1 ||
+    maxDebugSessionLogs > 100
+  ) {
+    errors.push("保持するデバッグログ数は1-100の整数で入力してください");
+  }
+
   if (!Number.isInteger(alarmIntervalMinutes) || alarmIntervalMinutes < 1) {
     errors.push("実行間隔（分）は1以上の整数で入力してください");
   }
@@ -663,6 +865,7 @@ export function validateSettings(settings: Partial<Settings>): {
     validatedSettings: {
       ...normalizedSettings,
       maxEntriesPerDay,
+      maxDebugSessionLogs,
       alarmIntervalMinutes,
       validated: true,
     },

@@ -4,6 +4,7 @@ import {
   getDailySummaryQuotaState,
   getSettings,
   incrementDailySummaryQuotaCount,
+  type SessionTrigger,
   type Settings,
 } from "../common/chrome_storage";
 import {
@@ -24,6 +25,7 @@ import {
   summarizeExtractionResult,
 } from "./content_extractor";
 import { postToSlack } from "./post";
+import { SessionLogger } from "./session_logger";
 import {
   formatSlackErrorMessage,
   formatSlackMessage,
@@ -263,7 +265,7 @@ async function handleSlackTestMessage(
  * 手動実行メッセージハンドラー
  */
 async function handleManualExecuteMessage(): Promise<ManualExecuteResult> {
-  await processReadingListEntries();
+  await processReadingListEntries("manual");
   return { success: true };
 }
 
@@ -331,27 +333,41 @@ export function shouldDelete(
 async function processContentExtraction(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
+  sessionLogger: SessionLogger,
 ): Promise<void> {
   const extractResult = await extractContent(
     entry.url,
     buildExtractorConfig(settings),
-  );
+  ).catch((error: unknown) => createExtractFailureResult(error));
   const extractionSummary = summarizeExtractionResult(extractResult);
 
   if (!extractResult.success) {
-    console.error(
-      `本文抽出失敗: ${entry.title} (${extractionSummary}) - ${extractResult.error}`,
+    await sessionLogger.logFailure(
+      entry,
+      "extract",
+      `本文抽出失敗: ${entry.title} (${extractionSummary})`,
+      extractResult.error,
     );
     await notifyExtractionError(
       entry,
       settings,
+      sessionLogger,
       `${extractResult.error} (${extractionSummary})`,
     );
     return;
   }
 
-  console.log(`本文抽出成功: ${entry.title} (${extractionSummary})`);
-  await processSummarization(entry, extractResult.content, settings);
+  await sessionLogger.logSuccess(
+    entry,
+    "extract",
+    `本文抽出成功: ${entry.title} (${extractionSummary})`,
+  );
+  await processSummarization(
+    entry,
+    extractResult.content,
+    settings,
+    sessionLogger,
+  );
 }
 
 /**
@@ -361,6 +377,7 @@ async function processSummarization(
   entry: chrome.readingList.ReadingListEntry,
   content: string,
   settings: Settings,
+  sessionLogger: SessionLogger,
 ): Promise<void> {
   const { config: llmConfig, error } = resolveSelectedLlmConfig(settings);
 
@@ -372,8 +389,17 @@ async function processSummarization(
         error || "LLM設定の解決に失敗しました。",
       );
     }
-    console.warn(
-      "LLM設定またはSlack設定が不完全のため、要約・Slack投稿をスキップ",
+    await sessionLogger.logFailure(
+      entry,
+      "summarize",
+      `要約をスキップ: ${entry.title} (${
+        error || "LLM設定またはSlack設定が不完全です。"
+      })`,
+    );
+    await sessionLogger.logFailure(
+      entry,
+      "post-slack",
+      `Slack投稿をスキップ: ${entry.title} (LLM設定またはSlack設定が不完全です。)`,
     );
     return;
   }
@@ -384,7 +410,25 @@ async function processSummarization(
     content,
     createSummarizerConfig(llmConfig),
     getSystemPrompt(settings),
-  );
+  ).catch((summarizeError: unknown) => ({
+    success: false as const,
+    error: getErrorMessage(summarizeError),
+  }));
+
+  if (summarizeResult.success) {
+    await sessionLogger.logSuccess(
+      entry,
+      "summarize",
+      `要約成功: ${entry.title} (model=${llmConfig.modelName})`,
+    );
+  } else {
+    await sessionLogger.logFailure(
+      entry,
+      "summarize",
+      `要約失敗: ${entry.title}`,
+      summarizeResult.error,
+    );
+  }
 
   const slackMessage =
     summarizeResult.success && summarizeResult.summary
@@ -401,7 +445,24 @@ async function processSummarization(
           summarizeResult.error || "不明なエラー",
         );
 
-  await postToSlack(settings.slackWebhookUrl, slackMessage);
+  try {
+    await postToSlack(settings.slackWebhookUrl, slackMessage);
+    await sessionLogger.logSuccess(
+      entry,
+      "post-slack",
+      summarizeResult.success
+        ? `Slack投稿成功: ${entry.title}`
+        : `Slackエラー通知投稿成功: ${entry.title}`,
+    );
+  } catch (error) {
+    await sessionLogger.logFailure(
+      entry,
+      "post-slack",
+      `Slack投稿失敗: ${entry.title}`,
+      error,
+    );
+    throw error;
+  }
 }
 
 async function markEntryAsRead(
@@ -417,22 +478,50 @@ async function markEntryAsRead(
   console.log(`既読化完了: ${entry.title}`);
 }
 
-async function processEntryToMarkAsRead(
+export async function processEntryToMarkAsRead(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
+  sessionLogger: SessionLogger,
 ): Promise<boolean> {
   try {
-    await markEntryAsRead(entry);
-    await incrementDailySummaryQuotaCount();
+    await processContentExtraction(entry, settings, sessionLogger);
   } catch (error) {
-    console.error(`既読化処理失敗: ${entry.title}`, error);
+    console.error(`要約または通知処理失敗: ${entry.title}`, error);
     return false;
   }
 
   try {
-    await processContentExtraction(entry, settings);
+    await incrementDailySummaryQuotaCount();
+    await sessionLogger.logSuccess(
+      entry,
+      "increment-quota",
+      `日次クォータ加算完了: ${entry.title}`,
+    );
   } catch (error) {
-    console.error(`要約または通知処理失敗: ${entry.title}`, error);
+    await sessionLogger.logFailure(
+      entry,
+      "increment-quota",
+      `日次クォータ加算失敗: ${entry.title}`,
+      error,
+    );
+    return false;
+  }
+
+  try {
+    await markEntryAsRead(entry);
+    await sessionLogger.logSuccess(
+      entry,
+      "mark-as-read",
+      `既読化完了: ${entry.title}`,
+    );
+  } catch (error) {
+    await sessionLogger.logFailure(
+      entry,
+      "mark-as-read",
+      `既読化失敗: ${entry.title}`,
+      error,
+    );
+    return false;
   }
 
   return true;
@@ -444,11 +533,17 @@ async function processEntryToMarkAsRead(
 async function notifyExtractionError(
   entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
+  sessionLogger: SessionLogger,
   error?: string,
 ): Promise<void> {
   const selectedModel = getSelectedLlmModel(settings);
 
   if (!settings.slackWebhookUrl || !selectedModel?.modelName.trim()) {
+    await sessionLogger.logFailure(
+      entry,
+      "post-slack",
+      `Slackエラー通知をスキップ: ${entry.title} (Slack設定またはモデル設定が不完全です。)`,
+    );
     return;
   }
 
@@ -458,7 +553,22 @@ async function notifyExtractionError(
     selectedModel.modelName,
     `本文抽出失敗: ${error}`,
   );
-  await postToSlack(settings.slackWebhookUrl, errorMessage);
+  try {
+    await postToSlack(settings.slackWebhookUrl, errorMessage);
+    await sessionLogger.logSuccess(
+      entry,
+      "post-slack",
+      `本文抽出エラー通知のSlack投稿成功: ${entry.title}`,
+    );
+  } catch (postError) {
+    await sessionLogger.logFailure(
+      entry,
+      "post-slack",
+      `本文抽出エラー通知のSlack投稿失敗: ${entry.title}`,
+      postError,
+    );
+    throw postError;
+  }
 }
 
 function buildExtractorConfig(settings: Settings): ExtractContentConfig {
@@ -476,22 +586,6 @@ function buildExtractorConfig(settings: Settings): ExtractContentConfig {
     apiKey: tavilyApiKey,
   };
   return config;
-}
-
-/**
- * 未読エントリを既読化し、要約をSlackへ投稿
- */
-export async function markAsReadAndNotify(
-  entry: chrome.readingList.ReadingListEntry,
-  settings: Settings,
-): Promise<void> {
-  try {
-    await markEntryAsRead(entry);
-    await processContentExtraction(entry, settings);
-  } catch (error) {
-    console.error(`既読化エラー: ${entry.title}`, error);
-    throw error;
-  }
 }
 
 /**
@@ -517,13 +611,18 @@ export async function deleteEntry(
 /**
  * リーディングリストエントリの一括処理
  */
-async function processReadingListEntriesInternal(): Promise<void> {
+async function processReadingListEntriesInternal(
+  trigger: SessionTrigger,
+): Promise<void> {
   console.log("リーディングリスト処理開始");
+  let settings: Settings | null = null;
+  const sessionLogger = await SessionLogger.create(trigger);
 
   try {
     // 設定を取得
-    const settings = await getSettings();
-    const maxEntriesPerDay = settings.maxEntriesPerDay ?? 3;
+    settings = await getSettings();
+    const resolvedSettings = settings;
+    const maxEntriesPerDay = resolvedSettings.maxEntriesPerDay ?? 3;
     const dailySummaryQuotaState = await getDailySummaryQuotaState();
     const processedToday = dailySummaryQuotaState.count;
     const remainingDailySummaryQuota = Math.max(
@@ -531,7 +630,7 @@ async function processReadingListEntriesInternal(): Promise<void> {
       maxEntriesPerDay - processedToday,
     );
     console.log(
-      `設定: 既読化まで${settings.daysUntilRead}日、削除まで${settings.daysUntilDelete}日、1日の要約上限${maxEntriesPerDay}件、今日の処理済み${processedToday}件`,
+      `設定: 既読化まで${resolvedSettings.daysUntilRead}日、削除まで${resolvedSettings.daysUntilDelete}日、1日の要約上限${maxEntriesPerDay}件、今日の処理済み${processedToday}件`,
     );
 
     // エントリ一覧を取得
@@ -539,7 +638,7 @@ async function processReadingListEntriesInternal(): Promise<void> {
 
     // 既読化対象のエントリをフィルタリング
     const allEntriesToMarkAsRead = entries.filter((entry) =>
-      shouldMarkAsRead(entry, settings.daysUntilRead),
+      shouldMarkAsRead(entry, resolvedSettings.daysUntilRead),
     );
 
     // 古い順にソートし、手動実行・定期実行の両方で共有する日次要約上限の残枠で制限
@@ -553,7 +652,7 @@ async function processReadingListEntriesInternal(): Promise<void> {
 
     // 削除対象のエントリをフィルタリング
     const entriesToDelete = entries.filter((entry) =>
-      shouldDelete(entry, settings.daysUntilDelete),
+      shouldDelete(entry, resolvedSettings.daysUntilDelete),
     );
 
     console.log(
@@ -562,7 +661,12 @@ async function processReadingListEntriesInternal(): Promise<void> {
 
     // 既読化処理
     for (const entry of entriesToMarkAsRead) {
-      const didMarkAsRead = await processEntryToMarkAsRead(entry, settings);
+      await sessionLogger.logEntryStart(entry);
+      const didMarkAsRead = await processEntryToMarkAsRead(
+        entry,
+        resolvedSettings,
+        sessionLogger,
+      );
       if (!didMarkAsRead) {
         break;
       }
@@ -577,13 +681,19 @@ async function processReadingListEntriesInternal(): Promise<void> {
       }
     }
 
+    await sessionLogger.complete(resolvedSettings.maxDebugSessionLogs ?? 10);
     console.log("リーディングリスト処理完了");
   } catch (error) {
-    console.error("リーディングリスト処理でエラーが発生:", error);
+    await sessionLogger.logError(
+      "リーディングリスト処理でエラーが発生:",
+      error,
+    );
   }
 }
 
-export function processReadingListEntries(): Promise<void> {
+export function processReadingListEntries(
+  trigger: SessionTrigger = "scheduled",
+): Promise<void> {
   if (activeReadingListProcessing) {
     console.log(
       "リーディングリスト処理は既に実行中のため、進行中の処理完了を待機します",
@@ -591,10 +701,10 @@ export function processReadingListEntries(): Promise<void> {
     return activeReadingListProcessing;
   }
 
-  activeReadingListProcessing = processReadingListEntriesInternal().finally(
-    () => {
-      activeReadingListProcessing = null;
-    },
-  );
+  activeReadingListProcessing = processReadingListEntriesInternal(
+    trigger,
+  ).finally(() => {
+    activeReadingListProcessing = null;
+  });
   return activeReadingListProcessing;
 }
