@@ -40,6 +40,8 @@ export interface SessionLogEvent {
   type:
     | "session-start"
     | "entry-start"
+    | "step-start"
+    | "step-retry"
     | "step-success"
     | "step-failure"
     | "session-complete"

@@ -74,6 +74,7 @@ vi.mock("../../src/backend/post", () => ({
 }));
 
 vi.mock("../../src/backend/summarizer", () => ({
+  MAX_SUMMARIZE_RETRIES: 3,
   summarizeContent: vi.fn(),
   formatSlackMessage: vi.fn(),
   formatSlackErrorMessage: vi.fn(),
@@ -84,6 +85,7 @@ const { extractContent: mockExtractContent } = await import(
 );
 const { postToSlack: mockPostToSlack } = await import("../../src/backend/post");
 const {
+  MAX_SUMMARIZE_RETRIES,
   summarizeContent: mockSummarizeContent,
   formatSlackMessage: mockFormatSlackMessage,
   formatSlackErrorMessage: mockFormatSlackErrorMessage,
@@ -281,6 +283,9 @@ describe("processEntryToMarkAsRead", () => {
         model: "gpt-4o-mini",
       },
       "カスタムプロンプト",
+      expect.objectContaining({
+        onRetry: expect.any(Function),
+      }),
     );
     expect(mockPostToSlack).toHaveBeenCalledWith(
       completeSettings.slackWebhookUrl,
@@ -345,6 +350,138 @@ describe("processEntryToMarkAsRead", () => {
       throw new Error("呼び出し順序を検証できませんでした");
     }
     expect(slackNotificationCallOrder).toBeLessThan(updateEntryCallOrder);
+  });
+
+  it("要約開始とリトライをセッションログに記録する", async () => {
+    setupMockStorage();
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    vi.mocked(mockPostToSlack).mockResolvedValue();
+
+    const logStepStart = vi.fn().mockResolvedValue(undefined);
+    const logStepRetry = vi.fn().mockResolvedValue(undefined);
+    const sessionLogger = {
+      logSuccess: vi.fn().mockResolvedValue(undefined),
+      logStepStart,
+      logStepRetry,
+      logFailure: vi.fn().mockResolvedValue(undefined),
+      logEntryStart: vi.fn().mockResolvedValue(undefined),
+      complete: vi.fn().mockResolvedValue(undefined),
+      logError: vi.fn().mockResolvedValue(undefined),
+    } as unknown as SessionLogger;
+
+    vi.mocked(mockSummarizeContent).mockImplementation(
+      async (
+        _title,
+        _url,
+        _content,
+        _config,
+        _systemPrompt,
+        hooks?: {
+          onRetry?: (context: {
+            attempt: number;
+            nextAttempt: number;
+            maxRetries: number;
+            delayMs: number;
+            errorMessage: string;
+          }) => Promise<void> | void;
+        },
+      ) => {
+        await hooks?.onRetry?.({
+          attempt: 1,
+          nextAttempt: 2,
+          maxRetries: MAX_SUMMARIZE_RETRIES,
+          delayMs: 1000,
+          errorMessage: "API Error",
+        });
+
+        return {
+          success: true,
+          summary: "要約文",
+          modelName: "gpt-4o-mini",
+        };
+      },
+    );
+
+    await processEntryToMarkAsRead(entry, completeSettings, sessionLogger);
+
+    expect(logStepStart).toHaveBeenCalledWith(
+      entry,
+      "summarize",
+      `要約開始: テスト記事 (model=gpt-4o-mini, attempt=1/${MAX_SUMMARIZE_RETRIES})`,
+    );
+    expect(logStepRetry).toHaveBeenCalledWith(
+      entry,
+      "summarize",
+      "要約リトライ: テスト記事 (1/3失敗 -> 2/3, 1000ms後, reason=API Error)",
+    );
+  });
+
+  it("既に step-failure を記録したエラーでは session-error を重複記録しない", async () => {
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    vi.mocked(mockSummarizeContent).mockResolvedValue({
+      success: true,
+      summary: "要約文",
+      modelName: "gpt-4o-mini",
+    });
+    vi.mocked(mockFormatSlackMessage).mockReturnValue(
+      "formatted slack message",
+    );
+    const postError = new Error("slack failed");
+    vi.mocked(mockPostToSlack).mockRejectedValue(postError);
+
+    const logError = vi.fn().mockResolvedValue(undefined);
+    const sessionLogger = {
+      logSuccess: vi.fn().mockResolvedValue(undefined),
+      logStepStart: vi.fn().mockResolvedValue(undefined),
+      logStepRetry: vi.fn().mockResolvedValue(undefined),
+      logFailure: vi.fn().mockResolvedValue(undefined),
+      logEntryStart: vi.fn().mockResolvedValue(undefined),
+      complete: vi.fn().mockResolvedValue(undefined),
+      logError,
+    } as unknown as SessionLogger;
+
+    await expect(
+      processEntryToMarkAsRead(entry, completeSettings, sessionLogger),
+    ).resolves.toBe(false);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("要約処理の予期せぬ例外を session-error に記録する", async () => {
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    const summarizeError = new Error("unexpected summarize error");
+    vi.mocked(mockSummarizeContent).mockRejectedValue(summarizeError);
+
+    const logError = vi.fn().mockResolvedValue(undefined);
+    const sessionLogger = {
+      logSuccess: vi.fn().mockResolvedValue(undefined),
+      logStepStart: vi.fn().mockResolvedValue(undefined),
+      logStepRetry: vi.fn().mockResolvedValue(undefined),
+      logFailure: vi.fn().mockResolvedValue(undefined),
+      logEntryStart: vi.fn().mockResolvedValue(undefined),
+      complete: vi.fn().mockResolvedValue(undefined),
+      logError,
+    } as unknown as SessionLogger;
+
+    await expect(
+      processEntryToMarkAsRead(entry, completeSettings, sessionLogger),
+    ).resolves.toBe(false);
+    expect(logError).toHaveBeenCalledWith(
+      "要約または通知処理で予期せぬエラーが発生",
+      summarizeError,
+      entry,
+    );
   });
 });
 

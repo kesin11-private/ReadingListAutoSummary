@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   formatSlackErrorMessage,
   formatSlackMessage,
+  MAX_SUMMARIZE_RETRIES,
   type SummarizerConfig,
   summarizeContent,
 } from "../../src/backend/summarizer";
@@ -99,7 +100,7 @@ describe("summarizer", () => {
       expect(result).toStrictEqual({
         success: false,
         error: "要約結果が空です",
-        retryCount: 3,
+        retryCount: MAX_SUMMARIZE_RETRIES,
         modelName: "gpt-4",
       });
     });
@@ -117,10 +118,10 @@ describe("summarizer", () => {
       expect(result).toStrictEqual({
         success: false,
         error: "API Error",
-        retryCount: 3,
+        retryCount: MAX_SUMMARIZE_RETRIES,
         modelName: "gpt-4",
       });
-      expect(mockCreate).toHaveBeenCalledTimes(3);
+      expect(mockCreate).toHaveBeenCalledTimes(MAX_SUMMARIZE_RETRIES);
     });
 
     it("OpenAI互換ではないレスポンスの場合は確認ポイント付きで失敗する", async () => {
@@ -135,7 +136,7 @@ describe("summarizer", () => {
       const result = await resultPromise;
 
       expect(result.success).toBe(false);
-      expect(result.retryCount).toBe(3);
+      expect(result.retryCount).toBe(MAX_SUMMARIZE_RETRIES);
       expect(result.modelName).toBe("gpt-4");
       expect(result.error).toContain(
         "要約APIから期待した形式のレスポンスを受け取れませんでした。",
@@ -176,6 +177,46 @@ describe("summarizer", () => {
         modelName: "gpt-4",
       });
       expect(mockCreate).toHaveBeenCalledTimes(2);
+    });
+
+    it("リトライ時にフックへ詳細を渡す", async () => {
+      const onRetry = vi.fn();
+      mockCreate
+        .mockRejectedValueOnce(new Error("API Error"))
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: "成功した要約文。",
+              },
+            },
+          ],
+        });
+
+      const resultPromise = summarizeContent(
+        "テストタイトル",
+        "https://example.com",
+        "テストコンテンツ",
+        config,
+        DEFAULT_SYSTEM_PROMPT,
+        {
+          onRetry,
+        },
+      );
+
+      vi.advanceTimersByTime(1000);
+      await vi.runOnlyPendingTimersAsync();
+
+      const result = await resultPromise;
+
+      expect(result.success).toBe(true);
+      expect(onRetry).toHaveBeenCalledWith({
+        attempt: 1,
+        nextAttempt: 2,
+        maxRetries: MAX_SUMMARIZE_RETRIES,
+        delayMs: 1000,
+        errorMessage: "API Error",
+      });
     });
 
     it("OpenAI APIに正しいパラメータを渡す", async () => {
