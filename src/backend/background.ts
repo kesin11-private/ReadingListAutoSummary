@@ -29,6 +29,7 @@ import { SessionLogger } from "./session_logger";
 import {
   formatSlackErrorMessage,
   formatSlackMessage,
+  MAX_SUMMARIZE_RETRIES,
   type SummarizeResult,
   type SummarizerConfig,
   summarizeContent,
@@ -37,6 +38,13 @@ import "./alarm"; // アラーム処理の初期化
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+class LoggedStepError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LoggedStepError";
+  }
 }
 
 let activeReadingListProcessing: Promise<void> | null = null;
@@ -407,7 +415,7 @@ async function processSummarization(
   await sessionLogger.logStepStart(
     entry,
     "summarize",
-    `要約開始: ${entry.title} (model=${llmConfig.modelName}, attempt=1/3)`,
+    `要約開始: ${entry.title} (model=${llmConfig.modelName}, attempt=1/${MAX_SUMMARIZE_RETRIES})`,
   );
 
   const summarizeResult = await summarizeContent(
@@ -430,17 +438,7 @@ async function processSummarization(
           `要約リトライ: ${entry.title} (${attempt}/${maxRetries}失敗 -> ${nextAttempt}/${maxRetries}, ${delayMs}ms後, reason=${errorMessage})`,
         ),
     },
-  ).catch(async (summarizeError: unknown) => {
-    await sessionLogger.logError(
-      "要約処理で予期せぬエラーが発生",
-      summarizeError,
-      entry,
-    );
-    return {
-      success: false as const,
-      error: getErrorMessage(summarizeError),
-    };
-  });
+  );
 
   if (summarizeResult.success) {
     await sessionLogger.logSuccess(
@@ -488,7 +486,7 @@ async function processSummarization(
       `Slack投稿失敗: ${entry.title}`,
       error,
     );
-    throw error;
+    throw new LoggedStepError(getErrorMessage(error));
   }
 }
 
@@ -513,11 +511,13 @@ export async function processEntryToMarkAsRead(
   try {
     await processContentExtraction(entry, settings, sessionLogger);
   } catch (error) {
-    await sessionLogger.logError(
-      "要約または通知処理で予期せぬエラーが発生",
-      error,
-      entry,
-    );
+    if (!(error instanceof LoggedStepError)) {
+      await sessionLogger.logError(
+        "要約または通知処理で予期せぬエラーが発生",
+        error,
+        entry,
+      );
+    }
     console.error(`要約または通知処理失敗: ${entry.title}`, error);
     return false;
   }
@@ -599,7 +599,7 @@ async function notifyExtractionError(
       `本文抽出エラー通知のSlack投稿失敗: ${entry.title}`,
       postError,
     );
-    throw postError;
+    throw new LoggedStepError(getErrorMessage(postError));
   }
 }
 

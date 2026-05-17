@@ -74,6 +74,7 @@ vi.mock("../../src/backend/post", () => ({
 }));
 
 vi.mock("../../src/backend/summarizer", () => ({
+  MAX_SUMMARIZE_RETRIES: 3,
   summarizeContent: vi.fn(),
   formatSlackMessage: vi.fn(),
   formatSlackErrorMessage: vi.fn(),
@@ -84,6 +85,7 @@ const { extractContent: mockExtractContent } = await import(
 );
 const { postToSlack: mockPostToSlack } = await import("../../src/backend/post");
 const {
+  MAX_SUMMARIZE_RETRIES,
   summarizeContent: mockSummarizeContent,
   formatSlackMessage: mockFormatSlackMessage,
   formatSlackErrorMessage: mockFormatSlackErrorMessage,
@@ -393,7 +395,7 @@ describe("processEntryToMarkAsRead", () => {
         await hooks?.onRetry?.({
           attempt: 1,
           nextAttempt: 2,
-          maxRetries: 3,
+          maxRetries: MAX_SUMMARIZE_RETRIES,
           delayMs: 1000,
           errorMessage: "API Error",
         });
@@ -411,7 +413,7 @@ describe("processEntryToMarkAsRead", () => {
     expect(logStepStart).toHaveBeenCalledWith(
       entry,
       "summarize",
-      "要約開始: テスト記事 (model=gpt-4o-mini, attempt=1/3)",
+      `要約開始: テスト記事 (model=gpt-4o-mini, attempt=1/${MAX_SUMMARIZE_RETRIES})`,
     );
     expect(logStepRetry).toHaveBeenCalledWith(
       entry,
@@ -420,7 +422,7 @@ describe("processEntryToMarkAsRead", () => {
     );
   });
 
-  it("要約または通知処理の予期せぬエラーをセッションログに記録する", async () => {
+  it("既に step-failure を記録したエラーでは session-error を重複記録しない", async () => {
     mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
     vi.mocked(mockExtractContent).mockResolvedValue(
       createExtractSuccessResult(),
@@ -450,9 +452,34 @@ describe("processEntryToMarkAsRead", () => {
     await expect(
       processEntryToMarkAsRead(entry, completeSettings, sessionLogger),
     ).resolves.toBe(false);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("要約処理の予期せぬ例外を session-error に記録する", async () => {
+    mockChromeReadingList.updateEntry.mockResolvedValue(undefined);
+    vi.mocked(mockExtractContent).mockResolvedValue(
+      createExtractSuccessResult(),
+    );
+    const summarizeError = new Error("unexpected summarize error");
+    vi.mocked(mockSummarizeContent).mockRejectedValue(summarizeError);
+
+    const logError = vi.fn().mockResolvedValue(undefined);
+    const sessionLogger = {
+      logSuccess: vi.fn().mockResolvedValue(undefined),
+      logStepStart: vi.fn().mockResolvedValue(undefined),
+      logStepRetry: vi.fn().mockResolvedValue(undefined),
+      logFailure: vi.fn().mockResolvedValue(undefined),
+      logEntryStart: vi.fn().mockResolvedValue(undefined),
+      complete: vi.fn().mockResolvedValue(undefined),
+      logError,
+    } as unknown as SessionLogger;
+
+    await expect(
+      processEntryToMarkAsRead(entry, completeSettings, sessionLogger),
+    ).resolves.toBe(false);
     expect(logError).toHaveBeenCalledWith(
       "要約または通知処理で予期せぬエラーが発生",
-      postError,
+      summarizeError,
       entry,
     );
   });

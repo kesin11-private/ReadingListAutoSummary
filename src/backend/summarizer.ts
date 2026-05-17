@@ -30,6 +30,8 @@ export interface SummarizeHooks {
   }) => Promise<void> | void;
 }
 
+export const MAX_SUMMARIZE_RETRIES = 3;
+
 interface ChatCompletionResponseLike {
   choices?: Array<{
     message?: {
@@ -111,15 +113,16 @@ export async function summarizeContent(
   systemPrompt: string,
   hooks?: SummarizeHooks,
 ): Promise<SummarizeResult> {
-  const maxRetries = 3;
   const client = new OpenAI({
     baseURL: config.endpoint,
     apiKey: config.apiKey,
   });
   const userPrompt = `以下のWebページを要約してください：\n\nタイトル: ${title}\nURL: ${url}\n\n内容:\n${content}`;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    console.log(`要約開始 (試行 ${attempt}/${maxRetries}): ${title}`);
+  for (let attempt = 1; attempt <= MAX_SUMMARIZE_RETRIES; attempt++) {
+    console.log(
+      `要約開始 (試行 ${attempt}/${MAX_SUMMARIZE_RETRIES}): ${title}`,
+    );
 
     try {
       const response = await client.chat.completions.create({
@@ -151,16 +154,16 @@ export async function summarizeContent(
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       console.error(
-        `要約失敗 (試行 ${attempt}/${maxRetries}): ${errorMessage}`,
+        `要約失敗 (試行 ${attempt}/${MAX_SUMMARIZE_RETRIES}): ${errorMessage}`,
       );
 
       // 最後の試行でない場合はリトライ
-      if (attempt < maxRetries) {
+      if (attempt < MAX_SUMMARIZE_RETRIES) {
         const delayMs = calculateBackoffDelay(attempt);
         await hooks?.onRetry?.({
           attempt,
           nextAttempt: attempt + 1,
-          maxRetries,
+          maxRetries: MAX_SUMMARIZE_RETRIES,
           delayMs,
           errorMessage,
         });
@@ -170,7 +173,9 @@ export async function summarizeContent(
       }
 
       // 最後の試行でも失敗した場合
-      console.error(`要約生成失敗 (全${maxRetries}回試行): ${title}`);
+      console.error(
+        `要約生成失敗 (全${MAX_SUMMARIZE_RETRIES}回試行): ${title}`,
+      );
       return {
         success: false,
         error: errorMessage,
@@ -184,7 +189,7 @@ export async function summarizeContent(
   return {
     success: false,
     error: "不明なエラー",
-    retryCount: maxRetries,
+    retryCount: MAX_SUMMARIZE_RETRIES,
   };
 }
 
