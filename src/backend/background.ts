@@ -41,8 +41,8 @@ function getErrorMessage(error: unknown): string {
 }
 
 class LoggedStepError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "LoggedStepError";
   }
 }
@@ -486,7 +486,7 @@ async function processSummarization(
       `Slack投稿失敗: ${entry.title}`,
       error,
     );
-    throw new LoggedStepError(getErrorMessage(error));
+    throw new LoggedStepError(getErrorMessage(error), { cause: error });
   }
 }
 
@@ -599,7 +599,7 @@ async function notifyExtractionError(
       `本文抽出エラー通知のSlack投稿失敗: ${entry.title}`,
       postError,
     );
-    throw new LoggedStepError(getErrorMessage(postError));
+    throw new LoggedStepError(getErrorMessage(postError), { cause: postError });
   }
 }
 
