@@ -486,7 +486,9 @@ async function processSummarization(
       `Slack投稿失敗: ${entry.title}`,
       error,
     );
-    throw new LoggedStepError(getErrorMessage(error), { cause: error });
+    throw new LoggedStepError("Slack post failed after logging step failure", {
+      cause: error,
+    });
   }
 }
 
@@ -599,7 +601,12 @@ async function notifyExtractionError(
       `本文抽出エラー通知のSlack投稿失敗: ${entry.title}`,
       postError,
     );
-    throw new LoggedStepError(getErrorMessage(postError), { cause: postError });
+    throw new LoggedStepError(
+      "Content extraction error notification to Slack failed after logging step failure",
+      {
+        cause: postError,
+      },
+    );
   }
 }
 
