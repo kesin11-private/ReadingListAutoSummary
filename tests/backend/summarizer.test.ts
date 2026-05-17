@@ -178,6 +178,46 @@ describe("summarizer", () => {
       expect(mockCreate).toHaveBeenCalledTimes(2);
     });
 
+    it("リトライ時にフックへ詳細を渡す", async () => {
+      const onRetry = vi.fn();
+      mockCreate
+        .mockRejectedValueOnce(new Error("API Error"))
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: "成功した要約文。",
+              },
+            },
+          ],
+        });
+
+      const resultPromise = summarizeContent(
+        "テストタイトル",
+        "https://example.com",
+        "テストコンテンツ",
+        config,
+        DEFAULT_SYSTEM_PROMPT,
+        {
+          onRetry,
+        },
+      );
+
+      vi.advanceTimersByTime(1000);
+      await vi.runOnlyPendingTimersAsync();
+
+      const result = await resultPromise;
+
+      expect(result.success).toBe(true);
+      expect(onRetry).toHaveBeenCalledWith({
+        attempt: 1,
+        nextAttempt: 2,
+        maxRetries: 3,
+        delayMs: 1000,
+        errorMessage: "API Error",
+      });
+    });
+
     it("OpenAI APIに正しいパラメータを渡す", async () => {
       const mockResponse = {
         choices: [

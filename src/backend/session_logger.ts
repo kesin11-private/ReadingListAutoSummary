@@ -63,6 +63,38 @@ export class SessionLogger {
     });
   }
 
+  async logStepStart(
+    entry: chrome.readingList.ReadingListEntry,
+    step: SessionLogStep,
+    message: string,
+  ): Promise<void> {
+    console.log(message);
+    await this.appendEvent({
+      type: "step-start",
+      timestamp: Date.now(),
+      entryUrl: entry.url,
+      entryTitle: entry.title,
+      step,
+      detail: message,
+    });
+  }
+
+  async logStepRetry(
+    entry: chrome.readingList.ReadingListEntry,
+    step: SessionLogStep,
+    message: string,
+  ): Promise<void> {
+    console.warn(message);
+    await this.appendEvent({
+      type: "step-retry",
+      timestamp: Date.now(),
+      entryUrl: entry.url,
+      entryTitle: entry.title,
+      step,
+      detail: message,
+    });
+  }
+
   async logFailure(
     entry: chrome.readingList.ReadingListEntry,
     step: SessionLogStep,
@@ -111,11 +143,21 @@ export class SessionLogger {
     });
   }
 
-  async logError(message: string, error: unknown): Promise<void> {
+  async logError(
+    message: string,
+    error: unknown,
+    entry?: chrome.readingList.ReadingListEntry,
+  ): Promise<void> {
     console.error(message, error);
     await this.appendEvent({
       type: "session-error",
       timestamp: Date.now(),
+      ...(entry
+        ? {
+            entryUrl: entry.url,
+            entryTitle: entry.title,
+          }
+        : {}),
       detail: `${message}: ${getErrorMessage(error)}`,
     });
   }

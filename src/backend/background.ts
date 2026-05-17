@@ -404,16 +404,43 @@ async function processSummarization(
     return;
   }
 
+  await sessionLogger.logStepStart(
+    entry,
+    "summarize",
+    `要約開始: ${entry.title} (model=${llmConfig.modelName}, attempt=1/3)`,
+  );
+
   const summarizeResult = await summarizeContent(
     entry.title,
     entry.url,
     content,
     createSummarizerConfig(llmConfig),
     getSystemPrompt(settings),
-  ).catch((summarizeError: unknown) => ({
-    success: false as const,
-    error: getErrorMessage(summarizeError),
-  }));
+    {
+      onRetry: async ({
+        attempt,
+        nextAttempt,
+        maxRetries,
+        delayMs,
+        errorMessage,
+      }) =>
+        sessionLogger.logStepRetry(
+          entry,
+          "summarize",
+          `要約リトライ: ${entry.title} (${attempt}/${maxRetries}失敗 -> ${nextAttempt}/${maxRetries}, ${delayMs}ms後, reason=${errorMessage})`,
+        ),
+    },
+  ).catch(async (summarizeError: unknown) => {
+    await sessionLogger.logError(
+      "要約処理で予期せぬエラーが発生",
+      summarizeError,
+      entry,
+    );
+    return {
+      success: false as const,
+      error: getErrorMessage(summarizeError),
+    };
+  });
 
   if (summarizeResult.success) {
     await sessionLogger.logSuccess(
@@ -486,6 +513,11 @@ export async function processEntryToMarkAsRead(
   try {
     await processContentExtraction(entry, settings, sessionLogger);
   } catch (error) {
+    await sessionLogger.logError(
+      "要約または通知処理で予期せぬエラーが発生",
+      error,
+      entry,
+    );
     console.error(`要約または通知処理失敗: ${entry.title}`, error);
     return false;
   }

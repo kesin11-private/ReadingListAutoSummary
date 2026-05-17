@@ -20,6 +20,16 @@ export interface SummarizerConfig {
   model: string;
 }
 
+export interface SummarizeHooks {
+  onRetry?: (context: {
+    attempt: number;
+    nextAttempt: number;
+    maxRetries: number;
+    delayMs: number;
+    errorMessage: string;
+  }) => Promise<void> | void;
+}
+
 interface ChatCompletionResponseLike {
   choices?: Array<{
     message?: {
@@ -99,6 +109,7 @@ export async function summarizeContent(
   content: string,
   config: SummarizerConfig,
   systemPrompt: string,
+  hooks?: SummarizeHooks,
 ): Promise<SummarizeResult> {
   const maxRetries = 3;
   const client = new OpenAI({
@@ -146,6 +157,13 @@ export async function summarizeContent(
       // 最後の試行でない場合はリトライ
       if (attempt < maxRetries) {
         const delayMs = calculateBackoffDelay(attempt);
+        await hooks?.onRetry?.({
+          attempt,
+          nextAttempt: attempt + 1,
+          maxRetries,
+          delayMs,
+          errorMessage,
+        });
         console.log(`${delayMs}ms後にリトライします...`);
         await delay(delayMs);
         continue;
