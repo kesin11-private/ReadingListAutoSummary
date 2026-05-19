@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_SUMMARIZE_TIMEOUT_MS,
   formatSlackErrorMessage,
   formatSlackMessage,
   MAX_SUMMARIZE_RETRIES,
@@ -9,15 +10,20 @@ import {
 import { DEFAULT_SYSTEM_PROMPT } from "../../src/common/chrome_storage";
 
 // OpenAI SDKのモック
-const mockCreate = vi.fn();
-vi.mock("openai", () => ({
-  default: vi.fn().mockImplementation(() => ({
+// vi.mock はホイストされるため vi.hoisted() で変数を先に定義する
+const { mockCreate, mockOpenAIConstructor } = vi.hoisted(() => {
+  const mockCreate = vi.fn();
+  const mockOpenAIConstructor = vi.fn().mockImplementation(() => ({
     chat: {
       completions: {
         create: mockCreate,
       },
     },
-  })),
+  }));
+  return { mockCreate, mockOpenAIConstructor };
+});
+vi.mock("openai", () => ({
+  default: mockOpenAIConstructor,
 }));
 
 async function advanceRetryDelays(): Promise<void> {
@@ -249,6 +255,37 @@ describe("summarizer", () => {
         ],
         stream: false,
       });
+    });
+
+    it("タイムアウトが設定されていない場合はデフォルトタイムアウトをOpenAIクライアントに渡す", async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: "要約" } }],
+      });
+
+      await summarizeTestContent();
+
+      expect(mockOpenAIConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({ timeout: DEFAULT_SUMMARIZE_TIMEOUT_MS }),
+      );
+    });
+
+    it("configにタイムアウトが指定された場合はそれをOpenAIクライアントに渡す", async () => {
+      const customTimeout = 30_000;
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: "要約" } }],
+      });
+
+      await summarizeContent(
+        "テストタイトル",
+        "https://example.com",
+        "テストコンテンツ",
+        { ...config, timeout: customTimeout },
+        DEFAULT_SYSTEM_PROMPT,
+      );
+
+      expect(mockOpenAIConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({ timeout: customTimeout }),
+      );
     });
 
     it("カスタムsystemPromptが指定された場合に使用される", async () => {

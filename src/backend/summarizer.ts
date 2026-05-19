@@ -18,6 +18,7 @@ export interface SummarizerConfig {
   endpoint: string;
   apiKey: string;
   model: string;
+  timeout?: number;
 }
 
 export interface SummarizeHooks {
@@ -31,6 +32,10 @@ export interface SummarizeHooks {
 }
 
 export const MAX_SUMMARIZE_RETRIES = 3;
+
+// Chrome MV3サービスワーカーの最大寿命は約5分（アラーム起動時）。
+// SW強制終了前にエラーログを記録できるよう、タイムアウトを4分50秒に設定する。
+export const DEFAULT_SUMMARIZE_TIMEOUT_MS = 290_000; // 4分50秒
 
 interface ChatCompletionResponseLike {
   choices?: Array<{
@@ -116,6 +121,7 @@ export async function summarizeContent(
   const client = new OpenAI({
     baseURL: config.endpoint,
     apiKey: config.apiKey,
+    timeout: config.timeout ?? DEFAULT_SUMMARIZE_TIMEOUT_MS,
   });
   const userPrompt = `以下のWebページを要約してください：\n\nタイトル: ${title}\nURL: ${url}\n\n内容:\n${content}`;
 
