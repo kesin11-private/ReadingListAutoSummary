@@ -62,6 +62,12 @@ export interface ManualExecuteResult {
   error?: string;
 }
 
+export interface UpdateAlarmMessage extends BaseMessage {
+  type: "UPDATE_ALARM";
+}
+
+export type UpdateAlarmResult = ManualExecuteResult;
+
 /**
  * Union type for all frontend messages
  */
@@ -69,4 +75,5 @@ export type FrontendMessage =
   | ExtractContentMessage
   | SummarizeTestMessage
   | SlackTestMessage
-  | ManualExecuteMessage;
+  | ManualExecuteMessage
+  | UpdateAlarmMessage;

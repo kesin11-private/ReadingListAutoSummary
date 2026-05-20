@@ -386,6 +386,9 @@ export function App(): JSX.Element {
 
     try {
       await saveSettingsToStorage(validatedSettings);
+      await chrome.runtime
+        .sendMessage({ type: "UPDATE_ALARM" })
+        .catch(() => {});
       setSettings(formatSettingsForUi(validatedSettings));
       setSaveStatus("success");
       setSaveMessage("設定を保存しました。");
