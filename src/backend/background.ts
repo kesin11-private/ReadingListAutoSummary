@@ -17,7 +17,9 @@ import type {
   FrontendMessage,
   ManualExecuteResult,
   SlackTestResult,
+  UpdateAlarmResult,
 } from "../types/messages";
+import { setupAlarm } from "./alarm";
 import {
   type ExtractContentConfig,
   type ExtractContentResult,
@@ -34,7 +36,6 @@ import {
   type SummarizerConfig,
   summarizeContent,
 } from "./summarizer";
-import "./alarm"; // アラーム処理の初期化
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -79,7 +80,8 @@ type MessageResponse =
   | ExtractContentResult
   | SummarizeResult
   | SlackTestResult
-  | ManualExecuteResult;
+  | ManualExecuteResult
+  | UpdateAlarmResult;
 
 function sendAsyncMessageResponse(
   responsePromise: Promise<MessageResponse>,
@@ -188,6 +190,13 @@ function initializeMessageHandlers(): void {
           );
         }
 
+        if (request.type === "UPDATE_ALARM") {
+          return sendAsyncMessageResponse(
+            handleUpdateAlarmMessage(),
+            sendResponse,
+          );
+        }
+
         return false;
       },
     );
@@ -285,6 +294,15 @@ async function handleSlackTestMessage(
 async function handleManualExecuteMessage(): Promise<ManualExecuteResult> {
   await processReadingListEntries("manual");
   return { success: true };
+}
+
+async function handleUpdateAlarmMessage(): Promise<UpdateAlarmResult> {
+  try {
+    await setupAlarm();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error) };
+  }
 }
 
 // Initialize message handlers
