@@ -84,6 +84,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock("../../src/backend/background");
@@ -129,8 +130,6 @@ describe("Message handling", () => {
       mode: "local-with-tavily-fallback",
     });
     expect(sendResponse).toHaveBeenCalledWith(mockResult);
-
-    vi.useRealTimers();
   });
 
   it("Tavily API キーがあれば既定モード付きで抽出を実行する", async () => {
@@ -160,8 +159,6 @@ describe("Message handling", () => {
       },
     });
     expect(sendResponse).toHaveBeenCalledWith(mockResult);
-
-    vi.useRealTimers();
   });
 
   it("Tavily モードが選択されていればそのモードで抽出を実行する", async () => {
@@ -192,8 +189,6 @@ describe("Message handling", () => {
       },
     });
     expect(sendResponse).toHaveBeenCalledWith(mockResult);
-
-    vi.useRealTimers();
   });
 
   it("extractContent が失敗結果を返した場合はそのまま返す", async () => {
@@ -233,8 +228,6 @@ describe("Message handling", () => {
     await vi.runAllTimersAsync();
 
     expect(sendResponse).toHaveBeenCalledWith(mockError);
-
-    vi.useRealTimers();
   });
 
   it("不明なメッセージタイプは無視する", () => {
@@ -270,8 +263,6 @@ describe("Message handling", () => {
     expect(result).toBe(true);
     await vi.runAllTimersAsync();
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
-
-    vi.useRealTimers();
   });
 
   it("UPDATE_ALARM メッセージで setupAlarm を呼び成功レスポンスを返す", async () => {
@@ -291,8 +282,6 @@ describe("Message handling", () => {
     await vi.runAllTimersAsync();
     expect(mockSetupAlarm).toHaveBeenCalledTimes(1);
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
-
-    vi.useRealTimers();
   });
 
   it("UPDATE_ALARM メッセージで setupAlarm が失敗したとき失敗レスポンスを返す", async () => {
@@ -314,7 +303,5 @@ describe("Message handling", () => {
       success: false,
       error: "alarm error",
     });
-
-    vi.useRealTimers();
   });
 });
