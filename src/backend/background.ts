@@ -49,6 +49,16 @@ class LoggedStepError extends Error {
 
 let activeReadingListProcessing: Promise<void> | null = null;
 
+// Chrome MV3のサービスワーカーは約30秒アイドル状態が続くと停止する。
+// chrome.alarms.onAlarmはwaitUntil()をサポートしないため、PromiseをreturnしてもSW延命効果がない。
+// そのため、処理中に定期的なChrome API呼び出しでアイドルタイマーをリセットする必要がある。
+function startKeepAlive(): () => void {
+  const interval = setInterval(() => {
+    chrome.runtime.getPlatformInfo().catch(() => {});
+  }, 20_000);
+  return () => clearInterval(interval);
+}
+
 function createExtractFailureResult(error: unknown): ExtractContentResult {
   return {
     success: false,
@@ -654,6 +664,7 @@ async function processReadingListEntriesInternal(
   trigger: SessionTrigger,
 ): Promise<void> {
   console.log("リーディングリスト処理開始");
+  const stopKeepAlive = startKeepAlive();
   let settings: Settings | null = null;
   const sessionLogger = await SessionLogger.create(trigger);
 
@@ -727,6 +738,8 @@ async function processReadingListEntriesInternal(
       "リーディングリスト処理でエラーが発生:",
       error,
     );
+  } finally {
+    stopKeepAlive();
   }
 }
 

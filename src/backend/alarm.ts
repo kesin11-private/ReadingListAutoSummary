@@ -57,10 +57,12 @@ export function initializeAlarmHandlers(): void {
   });
 
   // アラーム実行時のイベントリスナー
+  // Promise を return することで Chrome はその Promise が resolve するまで SW を最大5分維持する。
+  // return しない場合、Chrome はイベント処理完了と見なし約30秒で SW を停止する可能性がある。
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
       console.log("定期処理アラームが発火しました");
-      processReadingListEntries("scheduled");
+      return processReadingListEntries("scheduled");
     }
   });
 }
