@@ -24,9 +24,12 @@ const USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 const PARSER_BACKEND = "defuddle/node";
 const DEFUDDLE_OPTIONS = {
-  markdown: true,
+  separateMarkdown: true,
   useAsync: false,
 };
+const FENCED_CODE_BLOCK_RE = /```[\s\S]*?```/g;
+const INLINE_CODE_SPAN_RE = /`[^`\n]+`/g;
+const RAW_HTML_TAG_RE = /<\/?[A-Za-z][^>]*>/g;
 
 function formatError(error) {
   if (error instanceof Error) {
@@ -118,11 +121,66 @@ function createValidationResult(fetchResult, overrides) {
   };
 }
 
-async function parseWithDefuddle(html, url) {
-  const parsed = await Defuddle(html, url, DEFUDDLE_OPTIONS);
-  const content = parsed.content.trim();
+function protectMarkdownCode(markdown) {
+  const placeholders = [];
+  let protectedMarkdown = markdown;
+
+  for (const pattern of [FENCED_CODE_BLOCK_RE, INLINE_CODE_SPAN_RE]) {
+    protectedMarkdown = protectedMarkdown.replace(pattern, (match) => {
+      const placeholder = `__CODE_PLACEHOLDER_${placeholders.length}__`;
+      placeholders.push(match);
+      return placeholder;
+    });
+  }
 
   return {
+    protectedMarkdown,
+    restore(value) {
+      return placeholders.reduce((restored, original, index) => {
+        return restored.replace(`__CODE_PLACEHOLDER_${index}__`, original);
+      }, value);
+    },
+  };
+}
+
+function escapeHtmlTag(tag) {
+  return tag
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function sanitizeMarkdownContent(markdown) {
+  const { protectedMarkdown, restore } = protectMarkdownCode(markdown);
+  const sanitized = protectedMarkdown
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<sup\b[^>]*>([\s\S]*?)<\/sup>/gi, (_, inner) => {
+      return `^${inner.replace(RAW_HTML_TAG_RE, "").trim()}^`;
+    })
+    .replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, (_, inner) => {
+      return `~${inner.replace(RAW_HTML_TAG_RE, "").trim()}~`;
+    })
+    .replace(/(\S)\s+\^([^^\n]+)\^\s*(\S)/g, "$1^$2^$3")
+    .replace(/(\S)\s+~([^~\n]+)~\s*(\S)/g, "$1~$2~$3")
+    .replace(RAW_HTML_TAG_RE, (tag) => escapeHtmlTag(tag))
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return restore(sanitized).trim();
+}
+
+function collectResidualHtmlTags(markdown) {
+  const { protectedMarkdown } = protectMarkdownCode(markdown);
+  return protectedMarkdown.match(RAW_HTML_TAG_RE) ?? [];
+}
+
+async function parseWithDefuddle(html, url) {
+  const parsed = await Defuddle(html, url, DEFUDDLE_OPTIONS);
+  const markdownContent = (parsed.contentMarkdown ?? parsed.content).trim();
+  const content = sanitizeMarkdownContent(markdownContent);
+
+  return {
+    rawMarkdown: markdownContent,
     content,
     title: parsed.title || null,
   };
@@ -147,14 +205,24 @@ async function validateUrl(url) {
       fetchResult.finalUrl,
     );
     const content = parsed.content;
+    const rawHtmlTags = collectResidualHtmlTags(parsed.rawMarkdown);
+    const residualHtmlTags = collectResidualHtmlTags(content);
     const failureReason =
-      content.length > 0 ? null : "Defuddle returned empty extracted content";
+      content.length === 0
+        ? "Defuddle returned empty extracted content"
+        : residualHtmlTags.length > 0
+          ? `Residual HTML tags found: ${residualHtmlTags.slice(0, 5).join(", ")}`
+          : null;
 
     return createValidationResult(fetchResult, {
       classification:
         failureReason === null ? "parse-success" : "parse-failure",
       parsedTitle: parsed.title,
+      rawHtmlTagCount: rawHtmlTags.length,
+      rawHtmlTagSamples: rawHtmlTags.slice(0, 5),
       extractedContentLength: content.length,
+      residualHtmlTagCount: residualHtmlTags.length,
+      residualHtmlTagSamples: residualHtmlTags.slice(0, 5),
       excerpt: content.slice(0, EXCERPT_LENGTH) || null,
       failureReason,
     });
@@ -162,7 +230,11 @@ async function validateUrl(url) {
     return createValidationResult(fetchResult, {
       classification: "parse-failure",
       parsedTitle: null,
+      rawHtmlTagCount: 0,
+      rawHtmlTagSamples: [],
       extractedContentLength: 0,
+      residualHtmlTagCount: 0,
+      residualHtmlTagSamples: [],
       excerpt: null,
       failureReason: formatError(error),
     });
@@ -177,7 +249,23 @@ function printResult(result) {
   );
   console.log(`  parserBackend: ${result.parserBackend}`);
   console.log(`  parsedTitle: ${result.parsedTitle ?? "-"}`);
+  console.log(`  rawHtmlTagCount: ${result.rawHtmlTagCount ?? 0}`);
+  console.log(
+    `  rawHtmlTagSamples: ${
+      result.rawHtmlTagSamples?.length
+        ? result.rawHtmlTagSamples.join(", ")
+        : "-"
+    }`,
+  );
   console.log(`  extractedContentLength: ${result.extractedContentLength}`);
+  console.log(`  residualHtmlTagCount: ${result.residualHtmlTagCount ?? 0}`);
+  console.log(
+    `  residualHtmlTagSamples: ${
+      result.residualHtmlTagSamples?.length
+        ? result.residualHtmlTagSamples.join(", ")
+        : "-"
+    }`,
+  );
   console.log(`  excerpt: ${result.excerpt ?? "-"}`);
   console.log(`  failureReason: ${result.failureReason ?? "-"}`);
 }

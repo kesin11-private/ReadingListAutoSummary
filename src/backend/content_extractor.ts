@@ -102,9 +102,13 @@ type LocalExtractResult =
     };
 
 const DEFUDDLE_OPTIONS = {
-  markdown: true,
+  separateMarkdown: true,
   useAsync: false,
 } as const;
+
+const FENCED_CODE_BLOCK_RE = /```[\s\S]*?```/g;
+const INLINE_CODE_SPAN_RE = /`[^`\n]+`/g;
+const RAW_HTML_TAG_RE = /<\/?[A-Za-z][^>]*>/g;
 
 type DefuddleExtractResult =
   | {
@@ -246,18 +250,71 @@ function isFetchBlockedError(error: unknown): boolean {
   );
 }
 
+function protectMarkdownCode(markdown: string): {
+  protectedMarkdown: string;
+  restore: (value: string) => string;
+} {
+  const placeholders: string[] = [];
+  let protectedMarkdown = markdown;
+
+  for (const pattern of [FENCED_CODE_BLOCK_RE, INLINE_CODE_SPAN_RE]) {
+    protectedMarkdown = protectedMarkdown.replace(pattern, (match) => {
+      const placeholder = `__CODE_PLACEHOLDER_${placeholders.length}__`;
+      placeholders.push(match);
+      return placeholder;
+    });
+  }
+
+  return {
+    protectedMarkdown,
+    restore: (value: string) =>
+      placeholders.reduce(
+        (restored, original, index) =>
+          restored.replace(`__CODE_PLACEHOLDER_${index}__`, original),
+        value,
+      ),
+  };
+}
+
+function escapeHtmlTag(tag: string): string {
+  return tag
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function sanitizeMarkdownContent(markdown: string): string {
+  const { protectedMarkdown, restore } = protectMarkdownCode(markdown);
+  const sanitized = protectedMarkdown
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<sup\b[^>]*>([\s\S]*?)<\/sup>/gi, (_, inner: string) => {
+      return `^${inner.replace(RAW_HTML_TAG_RE, "").trim()}^`;
+    })
+    .replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, (_, inner: string) => {
+      return `~${inner.replace(RAW_HTML_TAG_RE, "").trim()}~`;
+    })
+    .replace(/(\S)\s+\^([^^\n]+)\^\s*(\S)/g, "$1^$2^$3")
+    .replace(/(\S)\s+~([^~\n]+)~\s*(\S)/g, "$1~$2~$3")
+    .replace(RAW_HTML_TAG_RE, (tag) => escapeHtmlTag(tag))
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return restore(sanitized).trim();
+}
+
 async function extractHtmlWithDefuddle(
   html: string,
   url: string,
 ): Promise<DefuddleExtractResult> {
   const result = await Defuddle(html, url, DEFUDDLE_OPTIONS);
-  const content = result.content.trim();
+  const markdownContent = result.contentMarkdown ?? result.content;
+  const content = sanitizeMarkdownContent(markdownContent);
   const title = resolveFallbackTitle(url, result.title);
   if (!content) {
     return {
       success: false,
       title,
-      contentLength: result.content.length,
+      contentLength: markdownContent.length,
     };
   }
 

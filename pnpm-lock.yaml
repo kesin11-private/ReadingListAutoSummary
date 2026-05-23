@@ -11,9 +11,6 @@ importers:
       defuddle:
         specifier: ^0.18.1
         version: 0.18.1
-      linkedom:
-        specifier: ^0.18.12
-        version: 0.18.12
       openai:
         specifier: ^5.16.0
         version: 5.16.0(ws@8.18.3)
@@ -2259,7 +2256,8 @@ snapshots:
 
   css-what@6.2.2: {}
 
-  cssom@0.5.0: {}
+  cssom@0.5.0:
+    optional: true
 
   cssstyle@4.6.0:
     dependencies:
@@ -2327,7 +2325,8 @@ snapshots:
 
   entities@6.0.1: {}
 
-  entities@7.0.1: {}
+  entities@7.0.1:
+    optional: true
 
   es-module-lexer@1.7.0: {}
 
@@ -2405,7 +2404,8 @@ snapshots:
 
   html-escaper@2.0.2: {}
 
-  html-escaper@3.0.3: {}
+  html-escaper@3.0.3:
+    optional: true
 
   htmlparser2@10.1.0:
     dependencies:
@@ -2413,6 +2413,7 @@ snapshots:
       domhandler: 5.0.3
       domutils: 3.2.2
       entities: 7.0.1
+    optional: true
 
   http-proxy-agent@7.0.2:
     dependencies:
@@ -2556,6 +2557,7 @@ snapshots:
       html-escaper: 3.0.3
       htmlparser2: 10.1.0
       uhyphen: 0.2.0
+    optional: true
 
   loupe@3.2.1: {}
 
@@ -2807,7 +2809,8 @@ snapshots:
 
   typescript@5.9.2: {}
 
-  uhyphen@0.2.0: {}
+  uhyphen@0.2.0:
+    optional: true
 
   undici-types@7.10.0: {}
 

@@ -87,6 +87,7 @@ node scripts/validate-defuddle.mjs https://example.com/article
 - アクセスブロックらしきレスポンス
 - defuddle の抽出成功/失敗
 - 抽出文字数、タイトル、抜粋
+- Markdown整形前の HTML タグ件数と、整形後に残った HTML タグ件数
 
 ## 開発用コマンド
 

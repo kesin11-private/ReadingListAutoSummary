@@ -34,7 +34,6 @@
   },
   "dependencies": {
     "defuddle": "^0.18.1",
-    "linkedom": "^0.18.12",
     "openai": "^5.16.0",
     "preact": "^10.27.3",
     "unpdf": "^1.6.0"

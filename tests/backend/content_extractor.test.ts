@@ -59,7 +59,26 @@ const nonArticleHtml = `<!doctype html>
   </body>
 </html>`;
 
+const htmlLikeTokenArticleHtml = `<!doctype html>
+<html>
+  <head>
+    <title>HTML Token Sample</title>
+  </head>
+  <body>
+    <article>
+      <h1>HTML Token Sample</h1>
+      <p>脚注<sup>1</sup>と化学式 H<sub>2</sub>O を含みます。</p>
+      <p>タグ名は <span>&lt;img&gt;</span> です。</p>
+      <p>インラインコードは <code>&lt;section&gt;</code> です。</p>
+      <pre><code class="language-html">&lt;p&gt;Hello&lt;/p&gt;</code></pre>
+    </article>
+  </body>
+</html>`;
+
 const localArticleExcerpt = "あ".repeat(20);
+const FENCED_CODE_BLOCK_RE = /```[\s\S]*?```/g;
+const INLINE_CODE_SPAN_RE = /`[^`\n]+`/g;
+const RAW_HTML_TAG_RE = /<\/?[A-Za-z][^>]*>/g;
 
 /** モック用のResponse風オブジェクトを作成するヘルパー */
 function createMockResponse(overrides: Record<string, unknown> = {}) {
@@ -79,6 +98,19 @@ function createMockResponse(overrides: Record<string, unknown> = {}) {
     json: async () => ({}),
     ...rest,
   };
+}
+
+function hasResidualHtmlTags(markdown: string): boolean {
+  let protectedMarkdown = markdown;
+
+  for (const pattern of [FENCED_CODE_BLOCK_RE, INLINE_CODE_SPAN_RE]) {
+    protectedMarkdown = protectedMarkdown.replace(
+      pattern,
+      "__CODE_PLACEHOLDER__",
+    );
+  }
+
+  return (protectedMarkdown.match(RAW_HTML_TAG_RE) ?? []).length > 0;
 }
 
 describe("extractContent", () => {
@@ -113,6 +145,10 @@ describe("extractContent", () => {
         },
       ],
     });
+    if (!result.success) {
+      throw new Error("Expected success result");
+    }
+    expect(hasResidualHtmlTags(result.content)).toBe(false);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledWith("https://example.com/article", {
       headers: {
@@ -142,6 +178,7 @@ describe("extractContent", () => {
     expect(result.title).toBe("redirected.example.org");
     expect(result.source).toBe("local");
     expect(result.outcome).toBe("local-success");
+    expect(hasResidualHtmlTags(result.content)).toBe(false);
     expect(result.attempts).toEqual([
       {
         source: "local",
@@ -149,6 +186,26 @@ describe("extractContent", () => {
         kind: "local-success",
       },
     ]);
+  });
+
+  it("defuddle の markdown に残るHTMLタグを除去しつつコード例は保つ", async () => {
+    mockFetch.mockResolvedValue(
+      createMockResponse({ text: async () => htmlLikeTokenArticleHtml }),
+    );
+
+    const result = await extractContent("https://example.com/article", {});
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected success result");
+    }
+    expect(result.content).toContain("^1^");
+    expect(result.content).toContain("H~2~O");
+    expect(result.content).toContain("&lt;img&gt;");
+    expect(result.content).toContain("`<section>`");
+    expect(result.content).toContain("```html");
+    expect(result.content).toContain("<p>Hello</p>");
+    expect(hasResidualHtmlTags(result.content)).toBe(false);
   });
 
   it("ローカル fetch がブロックされた場合に Tavily へフォールバックする", async () => {
