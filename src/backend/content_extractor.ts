@@ -106,6 +106,18 @@ const DEFUDDLE_OPTIONS = {
   useAsync: false,
 } as const;
 
+type DefuddleExtractResult =
+  | {
+      success: true;
+      content: string;
+      title: string;
+    }
+  | {
+      success: false;
+      title: string;
+      contentLength: number;
+    };
+
 /**
  * 指数バックオフでリトライを実行する汎用関数
  */
@@ -152,6 +164,14 @@ function resolveFallbackTitle(url: string, title?: string): string {
   } catch {
     return url;
   }
+}
+
+function formatDefuddleEmptyContentError(
+  url: string,
+  title: string,
+  contentLength: number,
+): string {
+  return `defuddleがempty contentを返しました: title="${title}", contentLength=${contentLength}, url=${url}`;
 }
 
 function isPdfContent(contentType: string | null, url: string): boolean {
@@ -229,16 +249,22 @@ function isFetchBlockedError(error: unknown): boolean {
 async function extractHtmlWithDefuddle(
   html: string,
   url: string,
-): Promise<{ content: string; title: string } | null> {
+): Promise<DefuddleExtractResult> {
   const result = await Defuddle(html, url, DEFUDDLE_OPTIONS);
   const content = result.content.trim();
+  const title = resolveFallbackTitle(url, result.title);
   if (!content) {
-    return null;
+    return {
+      success: false,
+      title,
+      contentLength: result.content.length,
+    };
   }
 
   return {
+    success: true,
     content,
-    title: resolveFallbackTitle(url, result.title),
+    title,
   };
 }
 
@@ -471,10 +497,15 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
     };
   }
 
+  const effectiveUrl = response.url || url;
+
   // PDFの場合はunpdfでテキスト抽出
   const contentType = response.headers.get("content-type");
-  if (isPdfContent(contentType, url)) {
-    console.log(`PDFとして処理: ${url}`);
+  if (
+    isPdfContent(contentType, effectiveUrl) ||
+    isPdfContent(contentType, url)
+  ) {
+    console.log(`PDFとして処理: ${effectiveUrl}`);
     let arrayBuffer: ArrayBuffer;
     try {
       arrayBuffer = await response.arrayBuffer();
@@ -490,7 +521,7 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
       };
     }
 
-    return extractPdfText(arrayBuffer, url);
+    return extractPdfText(arrayBuffer, effectiveUrl);
   }
 
   const html = await response.text();
@@ -507,15 +538,19 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
   }
 
   try {
-    const extracted = await extractHtmlWithDefuddle(html, url);
-    if (!extracted) {
+    const extracted = await extractHtmlWithDefuddle(html, effectiveUrl);
+    if (!extracted.success) {
       return {
         success: false,
         attempt: {
           source: "local",
           success: false,
           kind: "parse-failed",
-          error: "defuddleで本文抽出できませんでした",
+          error: formatDefuddleEmptyContentError(
+            effectiveUrl,
+            extracted.title,
+            extracted.contentLength,
+          ),
         },
       };
     }

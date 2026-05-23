@@ -37,6 +37,17 @@ const localArticleHtml = `<!doctype html>
   </body>
 </html>`;
 
+const redirectedArticleHtml = `<!doctype html>
+<html>
+  <body>
+    <article>
+      <img src="/images/cover.png" alt="cover" />
+      <p>${"う".repeat(140)}</p>
+      <p>${"え".repeat(140)}</p>
+    </article>
+  </body>
+</html>`;
+
 const nonArticleHtml = `<!doctype html>
 <html>
   <head>
@@ -61,6 +72,7 @@ function createMockResponse(overrides: Record<string, unknown> = {}) {
     ok: true,
     status: 200,
     statusText: "OK",
+    url: "https://example.com/mock-response",
     headers,
     text: async () => "",
     arrayBuffer: async () => new ArrayBuffer(0),
@@ -108,6 +120,35 @@ describe("extractContent", () => {
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     });
+  });
+
+  it("リダイレクト後の最終URLを defuddle のベースURLとタイトル解決に使う", async () => {
+    mockFetch.mockResolvedValue(
+      createMockResponse({
+        url: "https://redirected.example.org/final/article",
+        text: async () => redirectedArticleHtml,
+      }),
+    );
+
+    const result = await extractContent("https://example.com/article", {});
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error("Expected success result");
+    }
+    expect(result.content).toContain(
+      "https://redirected.example.org/images/cover.png",
+    );
+    expect(result.title).toBe("redirected.example.org");
+    expect(result.source).toBe("local");
+    expect(result.outcome).toBe("local-success");
+    expect(result.attempts).toEqual([
+      {
+        source: "local",
+        success: true,
+        kind: "local-success",
+      },
+    ]);
   });
 
   it("ローカル fetch がブロックされた場合に Tavily へフォールバックする", async () => {
@@ -279,6 +320,44 @@ describe("extractContent", () => {
     ]);
   });
 
+  it("defuddle が empty content を返したら診断しやすいエラーを返す", async () => {
+    mockFetch.mockResolvedValue(
+      createMockResponse({
+        url: "https://redirected.example.org/landing",
+        text: async () => nonArticleHtml,
+      }),
+    );
+
+    const result = await extractContent("https://example.com/article", {});
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected failure result");
+    }
+
+    expect(result.outcome).toBe("local-failed-no-fallback");
+    expect(result.error).toContain("defuddleがempty contentを返しました");
+    expect(result.error).toContain('title="Index"');
+    expect(result.error).toContain("contentLength=0");
+    expect(result.error).toContain(
+      "url=https://redirected.example.org/landing",
+    );
+    expect(result.attempts).toEqual([
+      {
+        source: "local",
+        success: false,
+        kind: "parse-failed",
+        error: expect.stringContaining("defuddleがempty contentを返しました"),
+      },
+      {
+        source: "tavily",
+        success: false,
+        kind: "fallback-unavailable",
+        error: "Tavily API キーが未設定のためフォールバックできません。",
+      },
+    ]);
+  });
+
   it("ローカル parse 失敗後に Tavily も失敗したら両方の失敗を返す", async () => {
     mockFetch
       .mockResolvedValueOnce(
@@ -314,14 +393,16 @@ describe("extractContent", () => {
     expect(result.error).toContain(
       "ローカル抽出と Tavily フォールバックの両方に失敗しました。",
     );
-    expect(result.error).toContain("defuddleで本文抽出できませんでした");
+    expect(result.error).toContain("defuddleがempty contentを返しました");
     expect(result.error).toContain("tavily=Rate limited");
     expect(result.attempts).toEqual([
       {
         source: "local",
         success: false,
         kind: "parse-failed",
-        error: "defuddleで本文抽出できませんでした",
+        error: expect.stringContaining(
+          'defuddleがempty contentを返しました: title="Index"',
+        ),
       },
       {
         source: "tavily",
