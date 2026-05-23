@@ -88,6 +88,25 @@ node scripts/validate-readability.mjs https://example.com/article
 - readability の抽出成功/失敗
 - 抽出文字数、タイトル、抜粋
 
+readability と defuddle の Markdown 抽出結果をファイルで見比べるための比較スクリプトもあります。
+
+```bash
+pnpm compare:extractors -- https://example.com/article
+```
+
+保存先を指定する場合:
+
+```bash
+pnpm compare:extractors -- --output-dir ./tmp/extractor-compare https://example.com/article
+```
+
+このスクリプトは URL ごとにディレクトリを作り、以下のファイルを出力します。
+
+- `readability.txt`
+- `defuddle.txt`
+
+どちらも先頭に URL やタイトルなどのメタ情報を含み、その下に Markdown 抽出結果が続きます。
+
 ## 開発用コマンド
 
 ```bash
@@ -101,6 +120,7 @@ pnpm build
 - Chrome Extension (Manifest V3)
 - `chrome.readingList`
 - `@mizchi/readability`
+- `defuddle`
 - Tavily Extract API（任意フォールバック）
 - OpenAI SDK
 - Preact

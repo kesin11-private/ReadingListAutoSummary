@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:release": "vite build && cd dist && zip -r ../readling-list-auto-summary.zip .",
+    "compare:extractors": "node scripts/compare-extractors.mjs",
     "preview": "vite preview",
     "biome": "biome check .",
     "biome:fix": "biome check --write .",
@@ -34,6 +35,7 @@
   },
   "dependencies": {
     "@mizchi/readability": "^0.7.7",
+    "defuddle": "^0.18.1",
     "openai": "^5.16.0",
     "preact": "^10.27.3",
     "unpdf": "^1.6.0"
