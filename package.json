@@ -33,7 +33,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@mizchi/readability": "^0.7.7",
+    "defuddle": "^0.18.1",
+    "linkedom": "^0.18.12",
     "openai": "^5.16.0",
     "preact": "^10.27.3",
     "unpdf": "^1.6.0"

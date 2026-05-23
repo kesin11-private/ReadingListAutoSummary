@@ -48,6 +48,8 @@ const nonArticleHtml = `<!doctype html>
   </body>
 </html>`;
 
+const localArticleExcerpt = "あ".repeat(20);
+
 /** モック用のResponse風オブジェクトを作成するヘルパー */
 function createMockResponse(overrides: Record<string, unknown> = {}) {
   const { headers: headersOverride, ...rest } = overrides;
@@ -78,7 +80,7 @@ describe("extractContent", () => {
     vi.useRealTimers();
   });
 
-  it("ローカルHTML取得と readability で本文抽出に成功する", async () => {
+  it("ローカルHTML取得と defuddle で本文抽出に成功する", async () => {
     mockFetch.mockResolvedValue(
       createMockResponse({ text: async () => localArticleHtml }),
     );
@@ -87,7 +89,7 @@ describe("extractContent", () => {
 
     expect(result).toEqual({
       success: true,
-      content: expect.stringContaining("# Local Title"),
+      content: expect.stringContaining(localArticleExcerpt),
       title: "Local Title",
       source: "local",
       outcome: "local-success",
@@ -312,16 +314,14 @@ describe("extractContent", () => {
     expect(result.error).toContain(
       "ローカル抽出と Tavily フォールバックの両方に失敗しました。",
     );
-    expect(result.error).toContain(
-      "readabilityで本文抽出できませんでした (pageType=other)",
-    );
+    expect(result.error).toContain("defuddleで本文抽出できませんでした");
     expect(result.error).toContain("tavily=Rate limited");
     expect(result.attempts).toEqual([
       {
         source: "local",
         success: false,
         kind: "parse-failed",
-        error: "readabilityで本文抽出できませんでした (pageType=other)",
+        error: "defuddleで本文抽出できませんでした",
       },
       {
         source: "tavily",
@@ -624,7 +624,7 @@ describe("extractContent", () => {
       });
     });
 
-    it("PDFではないContent-Typeの場合はreadabilityで処理する", async () => {
+    it("PDFではないContent-Typeの場合はdefuddleで処理する", async () => {
       mockFetch.mockResolvedValueOnce(
         createMockResponse({
           headers: { get: () => "text/html; charset=utf-8" },
@@ -636,7 +636,7 @@ describe("extractContent", () => {
 
       expect(result).toEqual({
         success: true,
-        content: expect.stringContaining("# Local Title"),
+        content: expect.stringContaining(localArticleExcerpt),
         title: "Local Title",
         source: "local",
         outcome: "local-success",
@@ -648,7 +648,6 @@ describe("extractContent", () => {
           },
         ],
       });
-      // readabilityが使われ、unpdfは呼ばれないことを確認
       expect(getDocumentProxy).not.toHaveBeenCalled();
       expect(extractText).not.toHaveBeenCalled();
     });

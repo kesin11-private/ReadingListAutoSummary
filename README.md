@@ -6,7 +6,7 @@ Chrome の Reading List を定期処理し、古い未読記事を既読化し�
 
 - 未読記事を一定日数経過後に自動で既読化
 - 既読記事を一定日数経過後に自動削除（無効化も可）
-- 記事本文を **ローカル HTML 取得 + `@mizchi/readability`** で優先抽出
+- 記事本文を **ローカル HTML 取得 + `defuddle`** で優先抽出
 - ローカル抽出が失敗した場合のみ、**Tavily Extract API** に任意でフォールバック
 - OpenAI 互換 API で 3 文・約 600 文字の要約を生成
 - Slack Webhook に要約または失敗内容を投稿
@@ -17,12 +17,12 @@ Chrome の Reading List を定期処理し、古い未読記事を既読化し�
 
 1. **ローカル + Tavilyフォールバック（既定）**
    - 拡張機能が対象 URL の HTML を直接取得します
-   - `@mizchi/readability` で本文を Markdown 化します
+   - `defuddle` で本文を Markdown 化します
    - ローカル取得・解析に失敗し、かつ Tavily API キーが設定されている場合のみ Tavily にフォールバックします
    - Tavily API キーが未設定なら、ローカル抽出のみで完結します
 
 2. **Tavily**
-   - ローカル HTML 取得や readability は行わず、最初から Tavily Extract API で本文を抽出します
+   - ローカル HTML 取得や defuddle は行わず、最初から Tavily Extract API で本文を抽出します
    - Tavily API キーが必須です
 
 通常運用では `ローカル + Tavilyフォールバック` を選ぶと、Tavily は失敗時の保険として使えます。
@@ -69,23 +69,23 @@ Chrome の Reading List を定期処理し、古い未読記事を既読化し�
 
 ## Standalone validation script
 
-`@mizchi/readability` の抽出結果を実 URL で確認するための検証スクリプトがあります。
+`defuddle` の抽出結果を実 URL で確認するための検証スクリプトがあります。
 
 ```bash
-node scripts/validate-readability.mjs
+node scripts/validate-defuddle.mjs
 ```
 
 URL を指定して実行することもできます。
 
 ```bash
-node scripts/validate-readability.mjs https://example.com/article
+node scripts/validate-defuddle.mjs https://example.com/article
 ```
 
 このスクリプトは以下を確認します。
 
 - HTML 取得成功/失敗
 - アクセスブロックらしきレスポンス
-- readability の抽出成功/失敗
+- defuddle の抽出成功/失敗
 - 抽出文字数、タイトル、抜粋
 
 ## 開発用コマンド
@@ -100,7 +100,7 @@ pnpm build
 
 - Chrome Extension (Manifest V3)
 - `chrome.readingList`
-- `@mizchi/readability`
+- `defuddle`
 - Tavily Extract API（任意フォールバック）
 - OpenAI SDK
 - Preact
@@ -118,5 +118,5 @@ pnpm build
 ## 注意事項
 
 - Slack連携は Webhook URL のみ対応です。
-- 動的コンテンツや構造次第では `@mizchi/readability` 単体で本文抽出に失敗する場合があります。
+- 動的コンテンツや構造次第では `defuddle` 単体で本文抽出に失敗する場合があります。
 - 本拡張は Chrome Reading List API（`chrome.readingList`）が利用可能な環境が必要です。

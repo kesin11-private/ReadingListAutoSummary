@@ -1,4 +1,4 @@
-import { readable } from "@mizchi/readability";
+import { Defuddle } from "defuddle/node";
 import { definePDFJSModule, extractText, getDocumentProxy } from "unpdf";
 import * as unpdfPdfjs from "unpdf/pdfjs";
 import {
@@ -62,6 +62,9 @@ export type ExtractContentResult =
       attempts: ExtractAttempt[];
     };
 
+type ExtractContentSuccessResult = ExtractContentResult & { success: true };
+type ExtractContentFailureResult = ExtractContentResult & { success: false };
+
 export interface TavilyConfig {
   apiKey: string;
 }
@@ -97,6 +100,11 @@ type LocalExtractResult =
       success: false;
       attempt: ExtractAttempt;
     };
+
+const DEFUDDLE_OPTIONS = {
+  markdown: true,
+  useAsync: false,
+} as const;
 
 /**
  * 指数バックオフでリトライを実行する汎用関数
@@ -218,6 +226,22 @@ function isFetchBlockedError(error: unknown): boolean {
   );
 }
 
+async function extractHtmlWithDefuddle(
+  html: string,
+  url: string,
+): Promise<{ content: string; title: string } | null> {
+  const result = await Defuddle(html, url, DEFUDDLE_OPTIONS);
+  const content = result.content.trim();
+  if (!content) {
+    return null;
+  }
+
+  return {
+    content,
+    title: resolveFallbackTitle(url, result.title),
+  };
+}
+
 function formatAttempt(attempt: ExtractAttempt): string {
   const status = attempt.status !== undefined ? `(${attempt.status})` : "";
   const error = !attempt.success && attempt.error ? `:${attempt.error}` : "";
@@ -232,8 +256,24 @@ export function summarizeExtractionResult(
     .join(" -> ")}`;
 }
 
+function logSuccessResult(
+  url: string,
+  result: ExtractContentSuccessResult,
+): ExtractContentSuccessResult {
+  console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
+  return result;
+}
+
+function logFailureResult(
+  url: string,
+  result: ExtractContentFailureResult,
+): ExtractContentFailureResult {
+  console.error(`本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`);
+  return result;
+}
+
 /**
- * URLから本文を抽出する。ローカル本文取得 + readability を優先し、
+ * URLから本文を抽出する。ローカル本文取得 + defuddle を優先し、
  * 失敗時のみ Tavily Extract API にフォールバックする。
  */
 export async function extractContent(
@@ -259,16 +299,14 @@ async function extractLocallyWithTavilyFallback(
   attempts.push(localResult.attempt);
 
   if (localResult.success) {
-    const result: ExtractContentResult = {
+    return logSuccessResult(url, {
       success: true,
       content: localResult.content,
       title: localResult.title,
       source: "local",
       outcome: "local-success",
       attempts,
-    };
-    console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
-    return result;
+    });
   }
 
   console.warn(
@@ -286,18 +324,14 @@ async function extractLocallyWithTavilyFallback(
       error: fallbackError,
     });
 
-    const result: ExtractContentResult = {
+    return logFailureResult(url, {
       success: false,
       error:
         localResult.attempt.error ||
         "ローカル抽出に失敗し、Tavilyフォールバックも利用できません。",
       outcome: "local-failed-no-fallback",
       attempts,
-    };
-    console.error(
-      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
-    );
-    return result;
+    });
   }
 
   try {
@@ -310,16 +344,14 @@ async function extractLocallyWithTavilyFallback(
       kind: "tavily-success",
     });
 
-    const result: ExtractContentResult = {
+    return logSuccessResult(url, {
       success: true,
       content: fallbackResult.content,
       title: fallbackResult.title,
       source: "tavily",
       outcome: "tavily-fallback-success",
       attempts,
-    };
-    console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
-    return result;
+    });
   } catch (error) {
     const fallbackError = normalizeErrorMessage(error);
     attempts.push({
@@ -329,16 +361,12 @@ async function extractLocallyWithTavilyFallback(
       error: fallbackError,
     });
 
-    const result: ExtractContentResult = {
+    return logFailureResult(url, {
       success: false,
       error: `ローカル抽出と Tavily フォールバックの両方に失敗しました。local=${localResult.attempt.error}; tavily=${fallbackError}`,
       outcome: "tavily-fallback-failed",
       attempts,
-    };
-    console.error(
-      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
-    );
-    return result;
+    });
   }
 }
 
@@ -357,16 +385,12 @@ async function extractWithTavilyOnly(
       error: configError,
     });
 
-    const result: ExtractContentResult = {
+    return logFailureResult(url, {
       success: false,
       error: configError,
       outcome: "tavily-only-failed",
       attempts,
-    };
-    console.error(
-      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
-    );
-    return result;
+    });
   }
 
   try {
@@ -379,16 +403,14 @@ async function extractWithTavilyOnly(
       kind: "tavily-success",
     });
 
-    const result: ExtractContentResult = {
+    return logSuccessResult(url, {
       success: true,
       content: tavilyResult.content,
       title: tavilyResult.title,
       source: "tavily",
       outcome: "tavily-success",
       attempts,
-    };
-    console.log(`本文抽出成功: ${url} (${summarizeExtractionResult(result)})`);
-    return result;
+    });
   } catch (error) {
     const tavilyError = normalizeErrorMessage(error);
     attempts.push({
@@ -398,16 +420,12 @@ async function extractWithTavilyOnly(
       error: tavilyError,
     });
 
-    const result: ExtractContentResult = {
+    return logFailureResult(url, {
       success: false,
       error: `Tavily での本文抽出に失敗しました: ${tavilyError}`,
       outcome: "tavily-only-failed",
       attempts,
-    };
-    console.error(
-      `本文抽出失敗: ${url} (${summarizeExtractionResult(result)})`,
-    );
-    return result;
+    });
   }
 }
 
@@ -489,28 +507,23 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
   }
 
   try {
-    const result = readable(html, {
-      url,
-      charThreshold: 20,
-    });
-    const content = result.toMarkdown().trim();
-    if (!content) {
-      const pageType = result.pageType === "article" ? "article" : "other";
+    const extracted = await extractHtmlWithDefuddle(html, url);
+    if (!extracted) {
       return {
         success: false,
         attempt: {
           source: "local",
           success: false,
           kind: "parse-failed",
-          error: `readabilityで本文抽出できませんでした (pageType=${pageType})`,
+          error: "defuddleで本文抽出できませんでした",
         },
       };
     }
 
     return {
       success: true,
-      content,
-      title: resolveFallbackTitle(url, result.snapshot.metadata.title),
+      content: extracted.content,
+      title: extracted.title,
       attempt: {
         source: "local",
         success: true,
@@ -524,7 +537,7 @@ async function extractLocally(url: string): Promise<LocalExtractResult> {
         source: "local",
         success: false,
         kind: "parse-failed",
-        error: `readability解析に失敗しました: ${normalizeErrorMessage(error)}`,
+        error: `defuddle解析に失敗しました: ${normalizeErrorMessage(error)}`,
       },
     };
   }

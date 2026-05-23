@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
 import process from "node:process";
+import { Defuddle } from "defuddle/node";
 
 const SAMPLE_URLS = [
   "https://openai.com/ja-JP/index/inside-our-in-house-data-agent/",
@@ -11,7 +11,6 @@ const SAMPLE_URLS = [
 ];
 
 const REQUEST_TIMEOUT_MS = 20_000;
-const CHAR_THRESHOLD = 100;
 const EXCERPT_LENGTH = 200;
 const BLOCKED_STATUS_CODES = new Set([401, 403, 429]);
 const BLOCKED_BODY_PATTERNS = [
@@ -23,107 +22,18 @@ const BLOCKED_BODY_PATTERNS = [
 ];
 const USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+const PARSER_BACKEND = "defuddle/node";
+const DEFUDDLE_OPTIONS = {
+  markdown: true,
+  useAsync: false,
+};
 
-const NPM_EXEC_PARSER_SOURCE = `
-import { extract, extractTextContent } from "@mizchi/readability";
-
-const chunks = [];
-for await (const chunk of process.stdin) {
-  chunks.push(chunk);
-}
-
-const html = Buffer.concat(chunks).toString("utf8");
-const url = process.env.READABILITY_TARGET_URL ?? "";
-const extracted = extract(html, {
-  url,
-  charThreshold: ${CHAR_THRESHOLD},
-});
-const text = extracted.root
-  ? extractTextContent(extracted.root).replace(/s+/g, " ").trim()
-  : "";
-
-process.stdout.write(JSON.stringify({
-  title: extracted.metadata?.title ?? "",
-  excerpt: text.slice(0, ${EXCERPT_LENGTH}),
-  extractedTextLength: text.length,
-  rootFound: Boolean(extracted.root),
-  nodeCount: extracted.nodeCount ?? 0,
-}));
-`;
-
-function toParsedResult(extracted, extractTextContent) {
-  const text = extracted.root
-    ? extractTextContent(extracted.root).replace(/\s+/g, " ").trim()
-    : "";
-
-  return {
-    title: extracted.metadata?.title ?? "",
-    excerpt: text.slice(0, EXCERPT_LENGTH),
-    extractedTextLength: text.length,
-    rootFound: Boolean(extracted.root),
-    nodeCount: extracted.nodeCount ?? 0,
-  };
-}
-
-async function loadParser() {
-  try {
-    const module = await import("@mizchi/readability");
-    return {
-      backend: "local-dependency",
-      async parse(html, url) {
-        const extracted = module.extract(html, {
-          url,
-          charThreshold: CHAR_THRESHOLD,
-        });
-
-        return toParsedResult(extracted, module.extractTextContent);
-      },
-    };
-  } catch (error) {
-    return {
-      backend: "npm-exec-fallback",
-      loadError: formatError(error),
-      async parse(html, url) {
-        const result = spawnSync(
-          "npm",
-          [
-            "exec",
-            "--yes",
-            "--package",
-            "@mizchi/readability",
-            "--",
-            "node",
-            "--input-type=module",
-            "-e",
-            NPM_EXEC_PARSER_SOURCE,
-          ],
-          {
-            input: html,
-            encoding: "utf8",
-            maxBuffer: 10 * 1024 * 1024,
-            env: {
-              ...process.env,
-              READABILITY_TARGET_URL: url,
-            },
-          },
-        );
-
-        if (result.error) {
-          throw result.error;
-        }
-
-        if (result.status !== 0) {
-          throw new Error(
-            result.stderr.trim() ||
-              result.stdout.trim() ||
-              `npm exec failed with exit code ${result.status}`,
-          );
-        }
-
-        return JSON.parse(result.stdout);
-      },
-    };
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.message;
   }
+
+  return String(error);
 }
 
 function getContentType(response) {
@@ -196,35 +106,33 @@ async function fetchHtml(url) {
   }
 }
 
-function createValidationResult(fetchResult, parser, overrides) {
+function createValidationResult(fetchResult, overrides) {
   return {
     url: fetchResult.url,
     finalUrl: fetchResult.finalUrl,
     httpStatus: fetchResult.status,
     statusText: fetchResult.statusText,
     contentType: fetchResult.contentType,
-    parserBackend: parser.backend,
+    parserBackend: PARSER_BACKEND,
     ...overrides,
   };
 }
 
-function getParseFailureReason(parsed) {
-  if (parsed.rootFound && parsed.extractedTextLength > 0) {
-    return null;
-  }
+async function parseWithDefuddle(html, url) {
+  const parsed = await Defuddle(html, url, DEFUDDLE_OPTIONS);
+  const content = parsed.content.trim();
 
-  if (parsed.rootFound) {
-    return "Readability returned empty extracted text";
-  }
-
-  return "Readability did not find a main content root";
+  return {
+    content,
+    title: parsed.title || null,
+  };
 }
 
-async function validateUrl(url, parser) {
+async function validateUrl(url) {
   const fetchResult = await fetchHtml(url);
 
   if (!fetchResult.ok) {
-    return createValidationResult(fetchResult, parser, {
+    return createValidationResult(fetchResult, {
       classification: fetchResult.classification,
       parsedTitle: null,
       extractedContentLength: 0,
@@ -234,19 +142,24 @@ async function validateUrl(url, parser) {
   }
 
   try {
-    const parsed = await parser.parse(fetchResult.html, fetchResult.finalUrl);
-    const failureReason = getParseFailureReason(parsed);
+    const parsed = await parseWithDefuddle(
+      fetchResult.html,
+      fetchResult.finalUrl,
+    );
+    const content = parsed.content;
+    const failureReason =
+      content.length > 0 ? null : "Defuddle returned empty extracted content";
 
-    return createValidationResult(fetchResult, parser, {
+    return createValidationResult(fetchResult, {
       classification:
         failureReason === null ? "parse-success" : "parse-failure",
-      parsedTitle: parsed.title || null,
-      extractedContentLength: parsed.extractedTextLength,
-      excerpt: parsed.excerpt || null,
+      parsedTitle: parsed.title,
+      extractedContentLength: content.length,
+      excerpt: content.slice(0, EXCERPT_LENGTH) || null,
       failureReason,
     });
   } catch (error) {
-    return createValidationResult(fetchResult, parser, {
+    return createValidationResult(fetchResult, {
       classification: "parse-failure",
       parsedTitle: null,
       extractedContentLength: 0,
@@ -254,14 +167,6 @@ async function validateUrl(url, parser) {
       failureReason: formatError(error),
     });
   }
-}
-
-function formatError(error) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
 }
 
 function printResult(result) {
@@ -277,7 +182,7 @@ function printResult(result) {
   console.log(`  failureReason: ${result.failureReason ?? "-"}`);
 }
 
-function printSummary(results, parser) {
+function printSummary(results) {
   const summary = {};
 
   for (const result of results) {
@@ -291,10 +196,7 @@ function printSummary(results, parser) {
   );
 
   console.log("\n=== Summary ===");
-  console.log(`parserBackend: ${parser.backend}`);
-  if (parser.loadError) {
-    console.log(`localImportFallbackReason: ${parser.loadError}`);
-  }
+  console.log(`parserBackend: ${PARSER_BACKEND}`);
   console.log(JSON.stringify(sortedSummary, null, 2));
   console.log("\n=== Detailed Results ===");
   console.log(JSON.stringify(results, null, 2));
@@ -303,20 +205,17 @@ function printSummary(results, parser) {
 async function main() {
   const urls = process.argv.slice(2);
   const targets = urls.length > 0 ? urls : SAMPLE_URLS;
-  const parser = await loadParser();
 
-  console.log(
-    `Validating @mizchi/readability against ${targets.length} URL(s)...`,
-  );
+  console.log(`Validating defuddle against ${targets.length} URL(s)...`);
 
   const results = [];
   for (const url of targets) {
-    const result = await validateUrl(url, parser);
+    const result = await validateUrl(url);
     results.push(result);
     printResult(result);
   }
 
-  printSummary(results, parser);
+  printSummary(results);
 }
 
 await main();
