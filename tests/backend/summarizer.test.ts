@@ -13,13 +13,15 @@ import { DEFAULT_SYSTEM_PROMPT } from "../../src/common/chrome_storage";
 // vi.mock はホイストされるため vi.hoisted() で変数を先に定義する
 const { mockCreate, mockOpenAIConstructor } = vi.hoisted(() => {
   const mockCreate = vi.fn();
-  const mockOpenAIConstructor = vi.fn().mockImplementation(() => ({
-    chat: {
-      completions: {
-        create: mockCreate,
+  const mockOpenAIConstructor = vi.fn().mockImplementation(function () {
+    return {
+      chat: {
+        completions: {
+          create: mockCreate,
+        },
       },
-    },
-  }));
+    };
+  });
   return { mockCreate, mockOpenAIConstructor };
 });
 vi.mock("openai", () => ({
