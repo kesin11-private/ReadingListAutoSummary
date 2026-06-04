@@ -20,17 +20,17 @@
   "author": "kesin1202000@gmail.com",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@biomejs/biome": "^2.2.2",
-    "@preact/preset-vite": "^2.10.2",
-    "@tailwindcss/vite": "^4.1.12",
-    "@types/chrome": "^0.1.4",
-    "@types/node": "^24.3.0",
-    "@vitest/coverage-v8": "^4.1.0",
-    "jsdom": "^26.1.0",
-    "tailwindcss": "^4.1.12",
-    "typescript": "^5.9.2",
-    "vite": "^7.3.2",
-    "vitest": "^4.1.0"
+    "@biomejs/biome": "^2.4.16",
+    "@preact/preset-vite": "^2.10.5",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/chrome": "^0.1.42",
+    "@types/node": "^25.9.1",
+    "@vitest/coverage-v8": "^4.1.8",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   },
   "dependencies": {
     "@mizchi/readability": "^0.7.7",
