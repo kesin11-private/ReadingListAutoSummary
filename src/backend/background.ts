@@ -27,12 +27,6 @@ import {
   summarizeExtractionResult,
 } from "./content_extractor";
 import { postToSlack } from "./post";
-import {
-  queryReadingListEntries,
-  type ReadingListEntry,
-  removeReadingListEntry,
-  updateReadingListEntry,
-} from "./reading_list_api";
 import { SessionLogger } from "./session_logger";
 import {
   formatSlackErrorMessage,
@@ -317,9 +311,11 @@ initializeMessageHandlers();
 /**
  * Chromeリーディングリストからエントリ一覧を取得
  */
-export async function getReadingListEntries(): Promise<ReadingListEntry[]> {
+export async function getReadingListEntries(): Promise<
+  chrome.readingList.ReadingListEntry[]
+> {
   try {
-    const entries = await queryReadingListEntries();
+    const entries = await chrome.readingList.query({});
     console.log(`取得件数: ${entries.length}件`);
 
     return entries;
@@ -333,7 +329,7 @@ export async function getReadingListEntries(): Promise<ReadingListEntry[]> {
  * 未読エントリが既読化の対象かどうかを判定
  */
 export function shouldMarkAsRead(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   daysUntilRead: number,
 ): boolean {
   if (entry.hasBeenRead) {
@@ -350,7 +346,7 @@ export function shouldMarkAsRead(
  * 既読エントリが削除の対象かどうかを判定
  */
 export function shouldDelete(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   daysUntilDelete: number,
 ): boolean {
   if (daysUntilDelete === DELETION_DISABLED_VALUE) {
@@ -371,7 +367,7 @@ export function shouldDelete(
  * 本文抽出とSlack投稿を処理するヘルパー関数
  */
 async function processContentExtraction(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
   sessionLogger: SessionLogger,
 ): Promise<void> {
@@ -414,7 +410,7 @@ async function processContentExtraction(
  * 要約処理とSlack投稿を行うヘルパー関数
  */
 async function processSummarization(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   content: string,
   settings: Settings,
   sessionLogger: SessionLogger,
@@ -524,10 +520,12 @@ async function processSummarization(
   }
 }
 
-async function markEntryAsRead(entry: ReadingListEntry): Promise<void> {
+async function markEntryAsRead(
+  entry: chrome.readingList.ReadingListEntry,
+): Promise<void> {
   console.log(`既読化処理開始: ${entry.title} (${entry.url})`);
 
-  await updateReadingListEntry({
+  await chrome.readingList.updateEntry({
     url: entry.url,
     hasBeenRead: true,
   });
@@ -536,7 +534,7 @@ async function markEntryAsRead(entry: ReadingListEntry): Promise<void> {
 }
 
 export async function processEntryToMarkAsRead(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
   sessionLogger: SessionLogger,
 ): Promise<boolean> {
@@ -595,7 +593,7 @@ export async function processEntryToMarkAsRead(
  * 抽出エラーをSlackに通知するヘルパー関数
  */
 async function notifyExtractionError(
-  entry: ReadingListEntry,
+  entry: chrome.readingList.ReadingListEntry,
   settings: Settings,
   sessionLogger: SessionLogger,
   error?: string,
@@ -660,11 +658,13 @@ function buildExtractorConfig(settings: Settings): ExtractContentConfig {
 /**
  * 既読エントリを削除
  */
-export async function deleteEntry(entry: ReadingListEntry): Promise<void> {
+export async function deleteEntry(
+  entry: chrome.readingList.ReadingListEntry,
+): Promise<void> {
   try {
     console.log(`削除処理開始: ${entry.title} (${entry.url})`);
 
-    await removeReadingListEntry({
+    await chrome.readingList.removeEntry({
       url: entry.url,
     });
 

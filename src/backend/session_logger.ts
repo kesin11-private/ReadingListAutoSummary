@@ -8,7 +8,6 @@ import {
   type SessionTrigger,
   startSessionLog,
 } from "../common/chrome_storage";
-import type { ReadingListEntry } from "./reading_list_api";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -49,7 +48,7 @@ export class SessionLogger {
   }
 
   async logSuccess(
-    entry: ReadingListEntry,
+    entry: chrome.readingList.ReadingListEntry,
     step: SessionLogStep,
     message: string,
   ): Promise<void> {
@@ -65,7 +64,7 @@ export class SessionLogger {
   }
 
   async logStepStart(
-    entry: ReadingListEntry,
+    entry: chrome.readingList.ReadingListEntry,
     step: SessionLogStep,
     message: string,
   ): Promise<void> {
@@ -81,7 +80,7 @@ export class SessionLogger {
   }
 
   async logStepRetry(
-    entry: ReadingListEntry,
+    entry: chrome.readingList.ReadingListEntry,
     step: SessionLogStep,
     message: string,
   ): Promise<void> {
@@ -97,7 +96,7 @@ export class SessionLogger {
   }
 
   async logFailure(
-    entry: ReadingListEntry,
+    entry: chrome.readingList.ReadingListEntry,
     step: SessionLogStep,
     message: string,
     error?: unknown,
@@ -114,7 +113,9 @@ export class SessionLogger {
     });
   }
 
-  async logEntryStart(entry: ReadingListEntry): Promise<void> {
+  async logEntryStart(
+    entry: chrome.readingList.ReadingListEntry,
+  ): Promise<void> {
     await this.appendEvent({
       type: "entry-start",
       timestamp: Date.now(),
@@ -145,7 +146,7 @@ export class SessionLogger {
   async logError(
     message: string,
     error: unknown,
-    entry?: ReadingListEntry,
+    entry?: chrome.readingList.ReadingListEntry,
   ): Promise<void> {
     console.error(message, error);
     await this.appendEvent({
