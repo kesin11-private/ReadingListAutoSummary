@@ -1,0 +1,21 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'github>Kesin11/renovate-config:oss',
+    'config:best-practices',
+    // config:best-practicesがlockfile updateを追加するが、minimum release ageと相性が悪すぎてマージできないので無効化する
+    ':maintainLockFilesDisabled',
+    'schedule:weekends',
+    ':prHourlyLimit4',
+  ],
+  packageRules: [
+    {
+      matchPackageNames: [
+        '@types/node',
+      ],
+      extends: [
+        'schedule:monthly',
+      ],
+    },
+  ],
+}
