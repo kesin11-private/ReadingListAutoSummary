@@ -20,16 +20,16 @@
   "author": "kesin1202000@gmail.com",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@biomejs/biome": "^2.5.4",
-    "@preact/preset-vite": "^2.10.5",
+    "@biomejs/biome": "2.5.4",
+    "@preact/preset-vite": "2.10.5",
     "@tailwindcss/vite": "4.3.3",
     "@types/chrome": "^0.2.0",
     "@types/node": "25.9.1",
     "@vitest/coverage-v8": "4.1.10",
     "jsdom": "29.1.1",
     "tailwindcss": "4.3.3",
-    "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
     "vitest": "4.1.10"
   },
   "dependencies": {
