@@ -12,8 +12,8 @@ importers:
         specifier: ^0.7.7
         version: 0.7.7(supports-color@7.2.0)
       openai:
-        specifier: ^6.48.0
-        version: 6.48.0(zod@3.25.76)
+        specifier: ^6.49.0
+        version: 6.49.0(zod@3.25.76)
       preact:
         specifier: ^10.29.7
         version: 10.29.7
@@ -1288,8 +1288,8 @@ packages:
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
 
-  openai@6.48.0:
-    resolution: {integrity: sha512-KhVp+FyV50QrXNextvL9hIU5l6ox5HYuKQjGVk7lIqprgJol90+dQXWONV6S1lRWsKA1bXjrow8RsUT14M1hNA==}
+  openai@6.49.0:
+    resolution: {integrity: sha512-aYCc0C6L864eR6WSYIwQGyXriw/nIyZx0ObvhzOEVuk0zoBDpynjSbrionWI7q65B5H8jJX0DXR9snEzM6bfPg==}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
       '@smithy/hash-node': '>=4.3.0 <5'
@@ -2820,7 +2820,7 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@6.48.0(zod@3.25.76):
+  openai@6.49.0(zod@3.25.76):
     optionalDependencies:
       zod: 3.25.76
 
