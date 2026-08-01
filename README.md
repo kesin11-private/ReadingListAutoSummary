@@ -1,5 +1,11 @@
 # ReadingListAutoSummary
 
+<div align="center">
+
+![icon](images/icons/icon128.png)
+
+</div>
+
 Chrome の Reading List を定期処理し、古い未読記事を既読化しながら本文を要約して Slack に送る拡張です。
 
 ## 主な機能
