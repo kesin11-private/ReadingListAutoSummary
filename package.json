@@ -23,7 +23,7 @@
     "@biomejs/biome": "2.5.7",
     "@preact/preset-vite": "2.10.6",
     "@tailwindcss/vite": "4.3.3",
-    "@types/chrome": "0.2.2",
+    "@types/chrome": "0.2.5",
     "@types/node": "25.9.5",
     "@vitest/coverage-v8": "4.1.10",
     "jsdom": "30.0.1",
